@@ -8,8 +8,9 @@ Topology: run one daemon per machine; a client holds a list of machines and
 switches between them. No central hub. Reach machines from anywhere with a
 private overlay network like Tailscale.
 
-> Status: **M0** — daemon skeleton (config, SQLite schema, `/health`,
-> token-protected API, service install). See `docs/DESIGN.md` for the full plan.
+> Status: **M1** — drives Claude Code end to end: create a session, send a
+> message, stream the reply over SSE, and resume context across turns. See
+> `docs/DESIGN.md` for the full plan.
 
 ## Quick start (from source)
 
@@ -28,6 +29,42 @@ TOKEN=$(./dist/agent-master token)
 curl -s localhost:8888/api/info -H "Authorization: Bearer $TOKEN"
 # {"name":"<host>","providers":{"claude":{"available":true,...}},...}
 ```
+
+Drive Claude in a workspace:
+
+```bash
+AUTH="Authorization: Bearer $TOKEN"
+
+# create a session bound to a working directory
+SID=$(curl -s -X POST localhost:8888/api/sessions -H "$AUTH" \
+  -d '{"title":"demo","workspaceDir":"/path/to/repo"}' | jq -r .id)
+
+# stream the session (SSE) in one terminal
+curl -sN "localhost:8888/api/sessions/$SID/stream?token=$TOKEN"
+
+# send a message in another — the reply streams into the SSE above
+curl -s -X POST localhost:8888/api/sessions/$SID/send -H "$AUTH" \
+  -d '{"message":"list the files here","clientIntentId":"abc"}'
+```
+
+## API (M1)
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/health` | liveness (public) |
+| GET | `/api/info` | machine name + provider availability |
+| GET | `/api/sessions` | list sessions (recent projection) |
+| POST | `/api/sessions` | create `{workspaceDir, model?, title?}` |
+| GET | `/api/sessions/{id}` | session detail |
+| DELETE | `/api/sessions/{id}` | delete |
+| GET | `/api/sessions/{id}/messages?before_seq=&limit=` | history (ledger events) |
+| POST | `/api/sessions/{id}/send` | `{message, clientIntentId}` → starts a run |
+| POST | `/api/sessions/{id}/interrupt` | cancel the active run |
+| GET | `/api/sessions/{id}/stream` | resumable SSE (`Last-Event-ID` / `?after_seq=`) |
+
+SSE frames: `id: <seq>` + `event: am_event` + `data: {seq,type,runId,payload,createdAt}`.
+Event types: `user_message`, `run_started`, `assistant_message`, `tool_call`,
+`tool_result`, `run_finished`, `error`.
 
 ## Install (release)
 

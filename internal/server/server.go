@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Ken-Chy129/agent-master/internal/config"
+	"github.com/Ken-Chy129/agent-master/internal/session"
 	"github.com/Ken-Chy129/agent-master/internal/store"
 	"github.com/Ken-Chy129/agent-master/internal/version"
 )
@@ -20,18 +21,27 @@ import (
 type Server struct {
 	cfg   *config.Config
 	store *store.Store
+	svc   *session.Service
 	http  *http.Server
 }
 
 // New builds the HTTP server and its routes.
-func New(cfg *config.Config, st *store.Store) *Server {
-	s := &Server{cfg: cfg, store: st}
+func New(cfg *config.Config, st *store.Store, svc *session.Service) *Server {
+	s := &Server{cfg: cfg, store: st, svc: svc}
 
 	mux := http.NewServeMux()
 	// Public.
 	mux.HandleFunc("GET /health", s.handleHealth)
 	// Token-protected.
 	mux.Handle("GET /api/info", s.auth(http.HandlerFunc(s.handleInfo)))
+	mux.Handle("GET /api/sessions", s.auth(http.HandlerFunc(s.handleListSessions)))
+	mux.Handle("POST /api/sessions", s.auth(http.HandlerFunc(s.handleCreateSession)))
+	mux.Handle("GET /api/sessions/{id}", s.auth(http.HandlerFunc(s.handleGetSession)))
+	mux.Handle("DELETE /api/sessions/{id}", s.auth(http.HandlerFunc(s.handleDeleteSession)))
+	mux.Handle("GET /api/sessions/{id}/messages", s.auth(http.HandlerFunc(s.handleMessages)))
+	mux.Handle("POST /api/sessions/{id}/send", s.auth(http.HandlerFunc(s.handleSend)))
+	mux.Handle("POST /api/sessions/{id}/interrupt", s.auth(http.HandlerFunc(s.handleInterrupt)))
+	mux.Handle("GET /api/sessions/{id}/stream", s.auth(http.HandlerFunc(s.handleStream)))
 
 	s.http = &http.Server{
 		Addr:              cfg.Addr(),

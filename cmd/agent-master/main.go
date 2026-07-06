@@ -7,15 +7,19 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/Ken-Chy129/agent-master/internal/config"
+	"github.com/Ken-Chy129/agent-master/internal/provider"
 	"github.com/Ken-Chy129/agent-master/internal/server"
 	"github.com/Ken-Chy129/agent-master/internal/service"
+	"github.com/Ken-Chy129/agent-master/internal/session"
 	"github.com/Ken-Chy129/agent-master/internal/store"
 	"github.com/Ken-Chy129/agent-master/internal/version"
 )
@@ -80,7 +84,9 @@ func cmdServe(args []string) error {
 	}
 	defer st.Close()
 
-	srv := server.New(cfg, st)
+	claudeBin := resolveClaudeBin(cfg)
+	svc := session.NewService(st, provider.NewClaude(claudeBin))
+	srv := server.New(cfg, st, svc)
 	errCh := make(chan error, 1)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -98,6 +104,19 @@ func cmdServe(args []string) error {
 		defer cancel()
 		return srv.Shutdown(ctx)
 	}
+}
+
+// resolveClaudeBin picks the claude binary: the configured override, else the
+// one on PATH, else the bare name "claude" (runs will error clearly if absent).
+func resolveClaudeBin(cfg *config.Config) string {
+	if cfg.ClaudeBin != "" {
+		return cfg.ClaudeBin
+	}
+	if p, err := exec.LookPath("claude"); err == nil {
+		return p
+	}
+	slog.Warn("claude not found on PATH; set claude_bin in config or install claude")
+	return "claude"
 }
 
 func cmdToken(_ []string) error {
