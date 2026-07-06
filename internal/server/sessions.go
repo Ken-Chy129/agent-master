@@ -15,7 +15,7 @@ import (
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	limit := atoiDefault(r.URL.Query().Get("limit"), 30)
 	offset := atoiDefault(r.URL.Query().Get("offset"), 0)
-	list, err := s.svc.ListSessions(limit, offset)
+	list, hasMore, err := s.svc.ListSessions(limit, offset)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -23,7 +23,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	if list == nil {
 		list = []store.RecentSession{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": list})
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": list, "hasMore": hasMore})
 }
 
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
@@ -85,12 +85,12 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	beforeSeq := int64(atoiDefault(r.URL.Query().Get("before_seq"), 0))
 	limit := atoiDefault(r.URL.Query().Get("limit"), 100)
-	events, err := s.svc.Messages(r.PathValue("id"), beforeSeq, limit)
+	events, hasMore, err := s.svc.Messages(r.PathValue("id"), beforeSeq, limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": toWire(events)})
+	writeJSON(w, http.StatusOK, map[string]any{"events": toWire(events), "hasMore": hasMore})
 }
 
 func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {

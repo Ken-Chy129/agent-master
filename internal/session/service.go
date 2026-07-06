@@ -38,19 +38,17 @@ type Service struct {
 	prov  provider.Provider
 	bc    *broadcaster
 
-	mu      sync.Mutex
-	active  map[string]context.CancelFunc // sessionID -> cancel of the active run
-	intents map[string]bool               // clientIntentID dedup (in-memory, per process)
+	mu     sync.Mutex
+	active map[string]context.CancelFunc // sessionID -> cancel of the active run
 }
 
 // NewService builds a session service around a store and a provider.
 func NewService(st *store.Store, prov provider.Provider) *Service {
 	return &Service{
-		store:   st,
-		prov:    prov,
-		bc:      newBroadcaster(),
-		active:  make(map[string]context.CancelFunc),
-		intents: make(map[string]bool),
+		store:  st,
+		prov:   prov,
+		bc:     newBroadcaster(),
+		active: make(map[string]context.CancelFunc),
 	}
 }
 
@@ -82,8 +80,8 @@ func (s *Service) CreateSession(in CreateSessionInput) (store.Session, error) {
 // GetSession returns a session by id.
 func (s *Service) GetSession(id string) (store.Session, error) { return s.store.GetSession(id) }
 
-// ListSessions returns the recent-session projection.
-func (s *Service) ListSessions(limit, offset int) ([]store.RecentSession, error) {
+// ListSessions returns the recent-session projection and whether more exist.
+func (s *Service) ListSessions(limit, offset int) ([]store.RecentSession, bool, error) {
 	return s.store.ListRecent(limit, offset)
 }
 
@@ -93,8 +91,9 @@ func (s *Service) DeleteSession(id string) error {
 	return s.store.DeleteSession(id)
 }
 
-// Messages returns a page of ledger events for history (ascending by seq).
-func (s *Service) Messages(sessionID string, beforeSeq int64, limit int) ([]store.Event, error) {
+// Messages returns a page of ledger events for history (ascending by seq) and
+// whether older events exist.
+func (s *Service) Messages(sessionID string, beforeSeq int64, limit int) ([]store.Event, bool, error) {
 	return s.store.EventsBefore(sessionID, beforeSeq, limit)
 }
 
@@ -119,11 +118,14 @@ func (s *Service) Send(sessionID, message, clientIntentID string) (string, error
 		return "", err
 	}
 
-	s.mu.Lock()
-	if clientIntentID != "" && s.intents[clientIntentID] {
-		s.mu.Unlock()
-		return "", nil // idempotent: already accepted
+	// Idempotency: a repeated client intent returns the original run.
+	if clientIntentID != "" {
+		if existing, err := s.store.IntentRun(sessionID, clientIntentID); err == nil && existing != "" {
+			return existing, nil
+		}
 	}
+
+	s.mu.Lock()
 	if _, busy := s.active[sessionID]; busy {
 		s.mu.Unlock()
 		return "", ErrBusy
@@ -131,10 +133,13 @@ func (s *Service) Send(sessionID, message, clientIntentID string) (string, error
 	runID := newID("r")
 	ctx, cancel := context.WithCancel(context.Background())
 	s.active[sessionID] = cancel
-	if clientIntentID != "" {
-		s.intents[clientIntentID] = true
-	}
 	s.mu.Unlock()
+
+	if clientIntentID != "" {
+		if err := s.store.PutIntent(sessionID, clientIntentID, runID); err != nil {
+			slog.Error("put intent", "err", err)
+		}
+	}
 
 	// Commit the user turn and run-start before doing any provider work.
 	s.commit(sessionID, "user_message", runID, map[string]any{"text": message})
@@ -231,19 +236,16 @@ func (s *Service) commit(sessionID, typ, runID string, payload map[string]any) {
 		slog.Error("append event", "type", typ, "err", err)
 		return
 	}
+	// Advance the projection tail (write-then-derive), then fan out.
+	if err := s.store.BumpRecentSeq(sessionID, ev.Seq); err != nil {
+		slog.Error("bump recent seq", "err", err)
+	}
 	s.bc.publish(ev)
 }
 
 func (s *Service) touchRecent(sessionID, title, prev, activeRun string) {
-	// Preserve last_seq by reading the current tail is unnecessary here; the
-	// projection's last_seq is informational for M1. Keep it simple.
-	if err := s.store.UpsertRecent(store.RecentSession{
-		ID:          sessionID,
-		Title:       title,
-		LastPreview: prev,
-		ActiveRunID: activeRun,
-	}); err != nil {
-		slog.Error("upsert recent", "err", err)
+	if err := s.store.UpdateRecentMeta(sessionID, title, prev, activeRun); err != nil {
+		slog.Error("update recent meta", "err", err)
 	}
 }
 

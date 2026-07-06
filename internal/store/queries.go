@@ -63,7 +63,13 @@ func (s *Store) CreateSession(sess Session) error {
 	if err != nil {
 		return err
 	}
-	return s.UpsertRecent(RecentSession{ID: sess.ID, Title: sess.Title, UpdatedAt: sess.UpdatedAt})
+	// Seed the projection row.
+	_, err = s.DB.Exec(
+		`INSERT OR IGNORE INTO recent_sessions (id,title,last_preview,last_seq,active_run_id,updated_at)
+		 VALUES (?,?,'',0,NULL,?)`,
+		sess.ID, sess.Title, sess.UpdatedAt,
+	)
+	return err
 }
 
 // GetSession returns a session by id, or ErrNotFound.
@@ -113,17 +119,19 @@ func (s *Store) DeleteSession(id string) error {
 	return tx.Commit()
 }
 
-// ListRecent returns the session-list projection, newest first.
-func (s *Store) ListRecent(limit, offset int) ([]RecentSession, error) {
+// ListRecent returns the session-list projection newest first, plus whether
+// more rows exist beyond the returned page.
+func (s *Store) ListRecent(limit, offset int) ([]RecentSession, bool, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 30
 	}
+	// Fetch one extra to detect hasMore.
 	rows, err := s.DB.Query(
 		`SELECT id,title,last_preview,last_seq,active_run_id,updated_at
-		 FROM recent_sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?`, limit, offset,
+		 FROM recent_sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?`, limit+1, offset,
 	)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer rows.Close()
 	var out []RecentSession
@@ -132,29 +140,37 @@ func (s *Store) ListRecent(limit, offset int) ([]RecentSession, error) {
 		var preview, activeRun sql.NullString
 		var lastSeq sql.NullInt64
 		if err := rows.Scan(&r.ID, &r.Title, &preview, &lastSeq, &activeRun, &r.UpdatedAt); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		r.LastPreview, r.LastSeq, r.ActiveRunID = preview.String, lastSeq.Int64, activeRun.String
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	hasMore := len(out) > limit
+	if hasMore {
+		out = out[:limit]
+	}
+	return out, hasMore, nil
 }
 
-// UpsertRecent updates (or inserts) the projection row for a session.
-func (s *Store) UpsertRecent(r RecentSession) error {
-	if r.UpdatedAt == "" {
-		r.UpdatedAt = nowRFC3339()
-	}
+// BumpRecentSeq advances a session's projected tail seq (monotonic) and its
+// updated_at. Called on every committed event.
+func (s *Store) BumpRecentSeq(sessionID string, seq int64) error {
 	_, err := s.DB.Exec(
-		`INSERT INTO recent_sessions (id,title,last_preview,last_seq,active_run_id,updated_at)
-		 VALUES (?,?,?,?,?,?)
-		 ON CONFLICT(id) DO UPDATE SET
-		   title=excluded.title,
-		   last_preview=excluded.last_preview,
-		   last_seq=excluded.last_seq,
-		   active_run_id=excluded.active_run_id,
-		   updated_at=excluded.updated_at`,
-		r.ID, r.Title, r.LastPreview, r.LastSeq, nullIfEmpty(r.ActiveRunID), r.UpdatedAt,
+		`UPDATE recent_sessions SET last_seq=MAX(last_seq,?), updated_at=? WHERE id=?`,
+		seq, nowRFC3339(), sessionID,
+	)
+	return err
+}
+
+// UpdateRecentMeta refreshes the projection's display fields without touching
+// last_seq.
+func (s *Store) UpdateRecentMeta(sessionID, title, preview, activeRunID string) error {
+	_, err := s.DB.Exec(
+		`UPDATE recent_sessions SET title=?, last_preview=?, active_run_id=?, updated_at=? WHERE id=?`,
+		title, preview, nullIfEmpty(activeRunID), nowRFC3339(), sessionID,
 	)
 	return err
 }
@@ -204,24 +220,58 @@ func (s *Store) EventsAfter(sessionID string, afterSeq int64, limit int) ([]Even
 }
 
 // EventsBefore returns up to limit events with seq < beforeSeq (0 = latest),
-// in ascending order, for backward history pagination.
-func (s *Store) EventsBefore(sessionID string, beforeSeq int64, limit int) ([]Event, error) {
+// in ascending order, for backward history pagination. hasMore reports whether
+// older events exist before the returned window.
+func (s *Store) EventsBefore(sessionID string, beforeSeq int64, limit int) ([]Event, bool, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
 	if beforeSeq <= 0 {
 		beforeSeq = 1<<62 - 1
 	}
+	// Fetch one extra (descending) to detect older history, then reverse.
 	rows, err := s.DB.Query(
-		`SELECT seq,type,run_id,payload,created_at FROM (
-		   SELECT seq,type,run_id,payload,created_at FROM events
-		   WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT ?
-		 ) ORDER BY seq ASC`, sessionID, beforeSeq, limit,
+		`SELECT seq,type,run_id,payload,created_at FROM events
+		 WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT ?`, sessionID, beforeSeq, limit+1,
 	)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return scanEvents(rows, sessionID)
+	desc, err := scanEvents(rows, sessionID)
+	if err != nil {
+		return nil, false, err
+	}
+	hasMore := len(desc) > limit
+	if hasMore {
+		desc = desc[:limit]
+	}
+	// Reverse to ascending.
+	for i, j := 0, len(desc)-1; i < j; i, j = i+1, j-1 {
+		desc[i], desc[j] = desc[j], desc[i]
+	}
+	return desc, hasMore, nil
+}
+
+// IntentRun returns the run id previously associated with a client intent, or
+// "" if none.
+func (s *Store) IntentRun(sessionID, intentID string) (string, error) {
+	var runID string
+	err := s.DB.QueryRow(
+		`SELECT run_id FROM intents WHERE session_id=? AND intent_id=?`, sessionID, intentID,
+	).Scan(&runID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return runID, err
+}
+
+// PutIntent records the intent→run mapping (idempotent).
+func (s *Store) PutIntent(sessionID, intentID, runID string) error {
+	_, err := s.DB.Exec(
+		`INSERT OR IGNORE INTO intents (session_id,intent_id,run_id,created_at) VALUES (?,?,?,?)`,
+		sessionID, intentID, runID, nowRFC3339(),
+	)
+	return err
 }
 
 func scanEvents(rows *sql.Rows, sessionID string) ([]Event, error) {

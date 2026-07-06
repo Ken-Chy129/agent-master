@@ -45,7 +45,7 @@ func New(cfg *config.Config, st *store.Store, svc *session.Service) *Server {
 
 	s.http = &http.Server{
 		Addr:              cfg.Addr(),
-		Handler:           logMiddleware(mux),
+		Handler:           s.corsMiddleware(logMiddleware(mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	return s

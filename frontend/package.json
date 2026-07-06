@@ -1,0 +1,18 @@
+{
+  "name": "agent-master-frontend",
+  "private": true,
+  "version": "0.0.1",
+  "description": "agent-master frontend monorepo (core TS client + web app)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm run dev -w @agent-master/web"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

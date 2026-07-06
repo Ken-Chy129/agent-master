@@ -36,6 +36,9 @@ type Config struct {
 	// WorkspaceRoots optionally whitelists the directories a session may run
 	// in. Empty = no restriction (v1 default).
 	WorkspaceRoots []string `json:"workspace_roots,omitempty"`
+	// AllowedOrigins optionally restricts CORS to specific origins. Empty =
+	// allow any origin (the token is the real guard).
+	AllowedOrigins []string `json:"allowed_origins,omitempty"`
 }
 
 // Dir returns the config directory (~/.agent-master).

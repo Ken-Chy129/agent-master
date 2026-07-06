@@ -99,4 +99,12 @@ var schemaStatements = []string{
 		updated_at    TEXT NOT NULL
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_recent_updated ON recent_sessions(updated_at DESC)`,
+	// Idempotency: one client intent maps to exactly one run.
+	`CREATE TABLE IF NOT EXISTS intents (
+		session_id TEXT NOT NULL,
+		intent_id  TEXT NOT NULL,
+		run_id     TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (session_id, intent_id)
+	)`,
 }
