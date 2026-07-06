@@ -1,25 +1,39 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from './store.js';
 import { ConnectionSetup } from './components/ConnectionSetup.js';
+import { MachineSwitcher } from './components/MachineSwitcher.js';
 import { SessionList } from './components/SessionList.js';
 import { Conversation } from './components/Conversation.js';
 import { Composer } from './components/Composer.js';
 
 export function App() {
-  const connection = useStore((s) => s.connection);
+  const initialized = useStore((s) => s.initialized);
+  const machines = useStore((s) => s.machines);
   const currentSessionId = useStore((s) => s.currentSessionId);
   const error = useStore((s) => s.error);
   const clearError = useStore((s) => s.clearError);
-  const disconnect = useStore((s) => s.disconnect);
-  const refreshSessions = useStore((s) => s.refreshSessions);
+  const init = useStore((s) => s.init);
 
-  // Load sessions once we have a connection (e.g. restored from localStorage).
+  const [adding, setAdding] = useState(false);
+
+  // Load persisted machines on mount (localStorage on web, secure store on desktop).
   useEffect(() => {
-    if (connection) void refreshSessions();
-  }, [connection, refreshSessions]);
+    void init();
+  }, [init]);
 
-  if (!connection) {
-    return <ConnectionSetup />;
+  if (!initialized) {
+    return <div className="empty">Loading…</div>;
+  }
+
+  const showSetup = machines.length === 0 || adding;
+  if (showSetup) {
+    return (
+      <ConnectionSetup
+        allowCancel={machines.length > 0}
+        onDone={() => setAdding(false)}
+        onCancel={() => setAdding(false)}
+      />
+    );
   }
 
   return (
@@ -27,14 +41,9 @@ export function App() {
       <aside className="sidebar">
         <div className="sidebar-header">
           <span className="brand">agent-master</span>
-          <span className="host" title={connection.baseUrl}>
-            {hostLabel(connection.baseUrl)}
-          </span>
+          <MachineSwitcher onAdd={() => setAdding(true)} />
         </div>
         <SessionList />
-        <div className="sidebar-actions" style={{ borderTop: '1px solid var(--border)', borderBottom: 'none' }}>
-          <button onClick={disconnect}>Disconnect</button>
-        </div>
       </aside>
 
       <main className="main">
@@ -55,13 +64,4 @@ export function App() {
       </main>
     </div>
   );
-}
-
-function hostLabel(baseUrl: string): string {
-  try {
-    const u = new URL(baseUrl);
-    return u.host;
-  } catch {
-    return baseUrl;
-  }
 }

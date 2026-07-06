@@ -41,6 +41,8 @@ func run(args []string) error {
 		return cmdServe(args[1:])
 	case "token":
 		return cmdToken(args[1:])
+	case "pair":
+		return cmdPair(args[1:])
 	case "service":
 		return cmdService(args[1:])
 	case "version", "-v", "--version":
@@ -151,6 +153,7 @@ Usage:
   agent-master serve [--port N] [--host H]      Run the daemon in the foreground
   agent-master service install|uninstall|status  Manage the background service
   agent-master token                            Print this machine's auth token
+  agent-master pair                             Print connection info + QR to pair a client
   agent-master version
 
 Config & data live under ~/.agent-master/ (default port 8888).

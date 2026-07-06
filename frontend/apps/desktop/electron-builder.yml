@@ -1,0 +1,46 @@
+# electron-builder configuration for the agent-master desktop shell.
+#
+# IMPORTANT: the shared web build MUST exist before packaging. Run
+#   npm run build -w @agent-master/web
+# (the `build`/`dist` npm scripts in this package do this for you). Packaging a
+# real macOS .dmg/.zip must be done ON macOS.
+appId: com.agent-master.desktop
+productName: agent-master
+copyright: agent-master
+
+directories:
+  output: release
+  buildResources: build-resources
+
+# Files packed into the app.asar (paths are relative to this package dir).
+#  - dist-electron/**  : compiled main + preload (see build.mjs)
+#  - the sibling web SPA build is copied to <app>/web-dist inside the asar so
+#    main.ts can resolve it as join(__dirname, '..', 'web-dist', 'index.html').
+files:
+  - dist-electron/**/*
+  - package.json
+  - from: ../web/dist
+    to: web-dist
+    filter:
+      - '**/*'
+
+extraMetadata:
+  main: dist-electron/main.js
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+  # Deep-link protocol registration for agentmaster:// on macOS.
+  extendInfo:
+    CFBundleURLTypes:
+      - CFBundleURLName: com.agent-master.desktop.pair
+        CFBundleURLSchemes:
+          - agentmaster

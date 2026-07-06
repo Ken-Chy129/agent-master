@@ -2,44 +2,17 @@ import {
   ApiClient,
   ApiError,
   SseClient,
+  defaultMachineName,
   type CreateSessionRequest,
+  type MachineProfile,
   type RecentSession,
   type WireEvent,
 } from '@agent-master/core';
 import { create } from 'zustand';
-
-const STORAGE_KEY = 'agent-master.connection';
-
-export interface ConnectionConfig {
-  baseUrl: string;
-  token: string;
-}
+import { getBridge, machineStore } from './storage.js';
 
 /** Coarse SSE connection status for the currently-open session. */
 export type StreamStatus = 'idle' | 'connecting' | 'open' | 'error';
-
-function loadConnection(): ConnectionConfig | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<ConnectionConfig>;
-    if (parsed.baseUrl && parsed.token) {
-      return { baseUrl: parsed.baseUrl, token: parsed.token };
-    }
-  } catch {
-    // ignore malformed storage
-  }
-  return null;
-}
-
-function saveConnection(conn: ConnectionConfig | null): void {
-  try {
-    if (conn) localStorage.setItem(STORAGE_KEY, JSON.stringify(conn));
-    else localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // ignore quota / disabled storage
-  }
-}
 
 /** Insert/replace an event by seq and keep the list sorted ascending. */
 function upsertEvent(list: WireEvent[], event: WireEvent): WireEvent[] {
@@ -54,45 +27,14 @@ function upsertEvent(list: WireEvent[], event: WireEvent): WireEvent[] {
   return next;
 }
 
-interface StoreState {
-  connection: ConnectionConfig | null;
-  api: ApiClient | null;
-  sse: SseClient | null;
-
-  sessions: RecentSession[];
-  sessionsLoading: boolean;
-
-  currentSessionId: string | null;
-  eventsBySession: Record<string, WireEvent[]>;
-  historyLoading: boolean;
-
-  streamStatus: StreamStatus;
-  /** True while a run is active in the current session (drives Composer state). */
-  runActive: boolean;
-
-  /** Last surfaced error message for banner display. */
-  error: string | null;
-
-  // actions
-  connect: (conn: ConnectionConfig) => void;
-  disconnect: () => void;
-  refreshSessions: () => Promise<void>;
-  createSession: (req: CreateSessionRequest) => Promise<void>;
-  openSession: (id: string) => Promise<void>;
-  closeSession: () => void;
-  sendMessage: (text: string) => Promise<void>;
-  interrupt: () => Promise<void>;
-  clearError: () => void;
+function makeClients(m: MachineProfile | null): { api: ApiClient | null; sse: SseClient | null } {
+  if (!m) return { api: null, sse: null };
+  const cfg = { baseUrl: m.baseUrl, token: m.token };
+  return { api: new ApiClient(cfg), sse: new SseClient(cfg) };
 }
 
-/** Module-level unsubscribe for the active SSE subscription (not stored in React state). */
-let activeUnsubscribe: (() => void) | null = null;
-
-function stopStream(): void {
-  if (activeUnsubscribe) {
-    activeUnsubscribe();
-    activeUnsubscribe = null;
-  }
+function findMachine(machines: MachineProfile[], id: string | null): MachineProfile | null {
+  return machines.find((m) => m.id === id) ?? null;
 }
 
 function errText(err: unknown): string {
@@ -112,16 +54,65 @@ function computeRunActive(events: WireEvent[]): boolean {
   return false;
 }
 
+export interface AddMachineInput {
+  name?: string;
+  baseUrl: string;
+  token: string;
+}
+
+interface StoreState {
+  initialized: boolean;
+
+  machines: MachineProfile[];
+  activeMachineId: string | null;
+
+  // Clients derived from the active machine.
+  api: ApiClient | null;
+  sse: SseClient | null;
+
+  sessions: RecentSession[];
+  sessionsLoading: boolean;
+
+  currentSessionId: string | null;
+  eventsBySession: Record<string, WireEvent[]>;
+  historyLoading: boolean;
+
+  streamStatus: StreamStatus;
+  runActive: boolean;
+  error: string | null;
+
+  // lifecycle / machines
+  init: () => Promise<void>;
+  addMachine: (input: AddMachineInput) => Promise<void>;
+  removeMachine: (id: string) => Promise<void>;
+  selectMachine: (id: string) => Promise<void>;
+
+  // sessions
+  refreshSessions: () => Promise<void>;
+  createSession: (req: CreateSessionRequest) => Promise<void>;
+  openSession: (id: string) => Promise<void>;
+  closeSession: () => void;
+  sendMessage: (text: string) => Promise<void>;
+  interrupt: () => Promise<void>;
+  clearError: () => void;
+}
+
+/** Module-level unsubscribe for the active SSE subscription (not React state). */
+let activeUnsubscribe: (() => void) | null = null;
+
+function stopStream(): void {
+  if (activeUnsubscribe) {
+    activeUnsubscribe();
+    activeUnsubscribe = null;
+  }
+}
+
 export const useStore = create<StoreState>((set, get) => ({
-  connection: loadConnection(),
-  api: (() => {
-    const c = loadConnection();
-    return c ? new ApiClient(c) : null;
-  })(),
-  sse: (() => {
-    const c = loadConnection();
-    return c ? new SseClient(c) : null;
-  })(),
+  initialized: false,
+  machines: [],
+  activeMachineId: null,
+  api: null,
+  sse: null,
 
   sessions: [],
   sessionsLoading: false,
@@ -132,30 +123,89 @@ export const useStore = create<StoreState>((set, get) => ({
   runActive: false,
   error: null,
 
-  connect: (conn) => {
-    saveConnection(conn);
-    stopStream();
+  init: async () => {
+    const persisted = await machineStore().load();
+    let activeId = persisted.activeId;
+    if (activeId && !persisted.machines.some((m) => m.id === activeId)) activeId = null;
+    if (!activeId && persisted.machines.length > 0) activeId = persisted.machines[0]!.id;
+
+    const { api, sse } = makeClients(findMachine(persisted.machines, activeId));
     set({
-      connection: conn,
-      api: new ApiClient(conn),
-      sse: new SseClient(conn),
-      sessions: [],
-      currentSessionId: null,
-      eventsBySession: {},
-      streamStatus: 'idle',
-      runActive: false,
-      error: null,
+      initialized: true,
+      machines: persisted.machines,
+      activeMachineId: activeId,
+      api,
+      sse,
     });
-    void get().refreshSessions();
+
+    // Desktop: accept pairing deep links (agentmaster://pair?...).
+    const bridge = getBridge();
+    if (bridge) {
+      bridge.onPair((p) => {
+        void get().addMachine({ name: p.name, baseUrl: p.url, token: p.token });
+      });
+    }
+
+    if (api) void get().refreshSessions();
   },
 
-  disconnect: () => {
+  addMachine: async (input) => {
+    const cleanUrl = input.baseUrl.trim().replace(/\/+$/, '');
+    const token = input.token.trim();
+    const name = input.name?.trim() || defaultMachineName(cleanUrl);
+
+    const existing = get().machines.find((m) => m.baseUrl === cleanUrl);
+    let machines: MachineProfile[];
+    let id: string;
+    if (existing) {
+      id = existing.id;
+      machines = get().machines.map((m) => (m.id === id ? { ...m, name, token } : m));
+    } else {
+      id = crypto.randomUUID();
+      machines = [...get().machines, { id, name, baseUrl: cleanUrl, token }];
+    }
+
+    set({ machines });
+    await machineStore().save({ machines, activeId: id });
+    await get().selectMachine(id);
+  },
+
+  removeMachine: async (id) => {
+    const machines = get().machines.filter((m) => m.id !== id);
+    const wasActive = get().activeMachineId === id;
+    let nextActive = get().activeMachineId;
+    if (wasActive) nextActive = machines[0]?.id ?? null;
+
+    set({ machines });
+    await machineStore().save({ machines, activeId: nextActive });
+
+    if (wasActive) {
+      if (nextActive) {
+        await get().selectMachine(nextActive);
+      } else {
+        stopStream();
+        set({
+          activeMachineId: null,
+          api: null,
+          sse: null,
+          sessions: [],
+          currentSessionId: null,
+          eventsBySession: {},
+          streamStatus: 'idle',
+          runActive: false,
+        });
+      }
+    }
+  },
+
+  selectMachine: async (id) => {
     stopStream();
-    saveConnection(null);
+    const { api, sse } = makeClients(findMachine(get().machines, id));
+    await machineStore().save({ machines: get().machines, activeId: id });
     set({
-      connection: null,
-      api: null,
-      sse: null,
+      activeMachineId: id,
+      api,
+      sse,
       sessions: [],
       currentSessionId: null,
       eventsBySession: {},
@@ -163,6 +213,7 @@ export const useStore = create<StoreState>((set, get) => ({
       runActive: false,
       error: null,
     });
+    if (api) void get().refreshSessions();
   },
 
   refreshSessions: async () => {
@@ -194,14 +245,8 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!api || !sse) return;
 
     stopStream();
-    set({
-      currentSessionId: id,
-      historyLoading: true,
-      streamStatus: 'connecting',
-      error: null,
-    });
+    set({ currentSessionId: id, historyLoading: true, streamStatus: 'connecting', error: null });
 
-    // 1) Load history (ascending by seq).
     let history: WireEvent[] = [];
     try {
       const res = await api.getMessages(id, { limit: 200 });
@@ -217,12 +262,10 @@ export const useStore = create<StoreState>((set, get) => ({
       runActive: computeRunActive(history),
     }));
 
-    // 2) Open the live stream from the last known seq.
     const lastSeq = history.length > 0 ? history[history.length - 1]!.seq : 0;
     activeUnsubscribe = sse.subscribe(id, {
       afterSeq: lastSeq,
       onEvent: (event) => {
-        // Ignore events for a session that's no longer current.
         if (get().currentSessionId !== id) return;
         set((state) => {
           const list = upsertEvent(state.eventsBySession[id] ?? [], event);
@@ -252,11 +295,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const trimmed = text.trim();
     if (!trimmed) return;
     try {
-      await api.send(currentSessionId, {
-        message: trimmed,
-        clientIntentId: crypto.randomUUID(),
-      });
-      // The user_message + run_started events arrive over SSE; runActive flips there.
+      await api.send(currentSessionId, { message: trimmed, clientIntentId: crypto.randomUUID() });
     } catch (err) {
       set({ error: errText(err) });
     }

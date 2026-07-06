@@ -8,9 +8,10 @@ Topology: run one daemon per machine; a client holds a list of machines and
 switches between them. No central hub. Reach machines from anywhere with a
 private overlay network like Tailscale.
 
-> Status: **M1** — drives Claude Code end to end: create a session, send a
-> message, stream the reply over SSE, and resume context across turns. See
-> `docs/DESIGN.md` for the full plan.
+> Status: **M4 (desktop MVP)** — drives Claude Code end to end (create session,
+> send, SSE stream, resume), a React web UI + Electron desktop app that manages
+> **multiple machines** from one client, and `agent-master pair` for onboarding.
+> See `docs/DESIGN.md` for the full plan.
 
 ## Quick start (from source)
 
@@ -65,6 +66,38 @@ curl -s -X POST localhost:8888/api/sessions/$SID/send -H "$AUTH" \
 SSE frames: `id: <seq>` + `event: am_event` + `data: {seq,type,runId,payload,createdAt}`.
 Event types: `user_message`, `run_started`, `assistant_message`, `tool_call`,
 `tool_result`, `run_finished`, `error`.
+
+## Clients (M4)
+
+One control client manages many machines: run a daemon on each machine, and the
+client holds a list of machine profiles (`{name, baseUrl, token}`) and switches
+between them. Get a machine's connection info with:
+
+```bash
+agent-master pair    # prints base URLs, token, an agentmaster:// deep link, and a QR
+```
+
+**Web** (`frontend/`, npm workspaces):
+
+```bash
+cd frontend && npm install
+npm run dev -w @agent-master/web    # Vite on http://localhost:5173
+```
+
+`packages/core` (`@agent-master/core`) is a framework-free TS client (`ApiClient`,
+`SseClient`, machine model) reused across web/desktop/(future) mobile.
+
+**Desktop** (Electron, `frontend/apps/desktop`): loads the same web UI, stores
+tokens in the OS-encrypted secure store (Electron `safeStorage`), and handles
+`agentmaster://` pairing deep links.
+
+```bash
+npm run dev -w @agent-master/desktop    # dev (needs the web dev server)
+npm run dist -w @agent-master/desktop   # package a macOS app (run on macOS)
+```
+
+**Reachability**: put your machines and client on one **Tailscale** tailnet and
+use the tailnet URL (set it as `public_url`) — no public port exposure.
 
 ## Install (release)
 

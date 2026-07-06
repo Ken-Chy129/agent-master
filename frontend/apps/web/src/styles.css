@@ -377,3 +377,62 @@ textarea:focus {
 .spacer {
   flex: 1;
 }
+
+/* Machine switcher (multi-machine) */
+.sidebar-header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.machine-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.machine-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.machine-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.icon-btn:hover {
+  border-color: var(--accent-dim);
+}
+.machine-url {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.setup-actions {
+  display: flex;
+  gap: 8px;
+}
+.setup-actions .primary {
+  flex: 1 1 auto;
+}

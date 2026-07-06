@@ -39,6 +39,10 @@ type Config struct {
 	// AllowedOrigins optionally restricts CORS to specific origins. Empty =
 	// allow any origin (the token is the real guard).
 	AllowedOrigins []string `json:"allowed_origins,omitempty"`
+	// PublicURL optionally advertises the externally reachable base URL (e.g. a
+	// reverse-proxy or Tailscale address) used for pairing. Empty = derive from
+	// local interfaces.
+	PublicURL string `json:"public_url,omitempty"`
 }
 
 // Dir returns the config directory (~/.agent-master).
