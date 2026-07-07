@@ -8,10 +8,14 @@ Topology: run one daemon per machine; a client holds a list of machines and
 switches between them. No central hub. Reach machines from anywhere with a
 private overlay network like Tailscale.
 
-> Status: **M4 (desktop MVP)** — drives Claude Code end to end (create session,
-> send, SSE stream, resume), a React web UI + Electron desktop app that manages
-> **multiple machines** from one client, and `agent-master pair` for onboarding.
-> See `docs/DESIGN.md` for the full plan.
+> Status: drives Claude Code end to end (session, send, SSE stream, resume),
+> a React web UI + Electron desktop app + Android client that manage **multiple
+> machines** from one client, server-side **render_state** with token-level
+> streaming, and `agent-master pair` for onboarding.
+>
+> **New here? Read [docs/HANDOFF.md](docs/HANDOFF.md)** (current status, what's
+> done, what's left, how to build/run, and the gotchas). Architecture:
+> [docs/DESIGN.md](docs/DESIGN.md); API contract: [docs/API.md](docs/API.md).
 
 ## Quick start (from source)
 
