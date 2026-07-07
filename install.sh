@@ -45,10 +45,17 @@ main() {
 
   ver="${AGENT_MASTER_VERSION:-}"
   if [ -z "$ver" ]; then
-    ver="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+    # Prefer the github.com redirect: /releases/latest -> /releases/tag/vX.Y.Z.
+    # This is not subject to the unauthenticated api.github.com rate limit.
+    ver="$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest" 2>/dev/null \
+      | sed -n 's#.*/releases/tag/v\{0,1\}\([^/]*\)$#\1#p')" || true
+  fi
+  if [ -z "$ver" ]; then
+    # Fallback: the API (may be rate-limited when unauthenticated → HTTP 403).
+    ver="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
       | grep '"tag_name"' | head -1 | sed 's/.*"v\{0,1\}\([^"]*\)".*/\1/')" || true
   fi
-  [ -n "$ver" ] || die "cannot determine version; set AGENT_MASTER_VERSION"
+  [ -n "$ver" ] || die "cannot determine latest version (GitHub may be rate-limiting). Retry, or pin it: AGENT_MASTER_VERSION=0.1.0"
 
   base="https://github.com/${REPO}/releases/download/v${ver}"
   asset="${BIN}-${target}"
