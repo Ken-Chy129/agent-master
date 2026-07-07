@@ -10,13 +10,26 @@
  *    deep links to the focused renderer as `agentmaster:pair`.
  *  - Enforce a single-instance lock so deep links funnel into one window.
  */
-import { app, BrowserWindow, ipcMain, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, safeStorage, shell } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { dirname, extname, join, normalize, sep } from 'node:path';
 
 const PROTOCOL = 'agentmaster';
+// Custom scheme used to serve the packaged web UI (instead of file://). A
+// standard+secure scheme lets Vite's ES-module scripts and assets load without
+// the file:// CORS/MIME restrictions that otherwise leave a blank window.
+const APP_SCHEME = 'app';
 const isDev = process.env.AM_DESKTOP_DEV === '1';
 const DEV_URL = process.env.AM_DESKTOP_DEV_URL ?? 'http://localhost:5173';
+
+// `standard` gives the scheme a real tuple origin so same-origin module scripts
+// and assets load cleanly. Deliberately NOT `secure`: a secure context would
+// treat the plain-http daemon API/SSE calls as blocked mixed content. Must be
+// registered before the app is ready.
+protocol.registerSchemesAsPrivileged([
+  { scheme: APP_SCHEME, privileges: { standard: true, supportFetchAPI: true } },
+]);
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -165,6 +178,49 @@ function resolveProdIndex(): string {
   return found ?? candidates[0]!;
 }
 
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.map': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+};
+
+/**
+ * Serve the packaged web build over app://. Resolving paths against the web
+ * root (with a traversal guard) and setting a correct Content-Type keeps
+ * module scripts and assets loadable, which file:// does not.
+ */
+function registerAppProtocol(): void {
+  const root = dirname(resolveProdIndex());
+  protocol.handle(APP_SCHEME, async (request) => {
+    const { pathname } = new URL(request.url);
+    let rel = decodeURIComponent(pathname);
+    if (rel === '/' || rel === '') rel = '/index.html';
+    const filePath = normalize(join(root, rel));
+    if (filePath !== root && !filePath.startsWith(root + sep)) {
+      return new Response('Forbidden', { status: 403 });
+    }
+    try {
+      const body = await readFile(filePath);
+      const type = MIME_TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+      return new Response(body, { headers: { 'Content-Type': type } });
+    } catch {
+      return new Response('Not found', { status: 404 });
+    }
+  });
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -183,7 +239,7 @@ function createWindow(): void {
     void mainWindow.loadURL(DEV_URL);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    void mainWindow.loadFile(resolveProdIndex());
+    void mainWindow.loadURL(`${APP_SCHEME}://bundle/index.html`);
   }
 
   // Open external (http/https) links in the OS browser, not new Electron windows.
@@ -235,6 +291,7 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     registerSecureStoreIpc();
+    if (!isDev) registerAppProtocol();
     createWindow();
 
     // Deliver a deep link supplied on the very first launch (Windows/Linux).

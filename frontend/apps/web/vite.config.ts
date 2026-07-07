@@ -12,6 +12,10 @@ import { defineConfig } from 'vite';
 const DAEMON_ORIGIN = process.env.AM_PROXY_TARGET ?? 'http://localhost:8888';
 
 export default defineConfig({
+  // Relative asset paths so the built index.html works when the desktop shell
+  // loads it over file:// (absolute "/assets/..." would resolve to the disk
+  // root there and 404, leaving a blank window). Safe for dev and web hosting.
+  base: './',
   plugins: [react()],
   resolve: {
     alias: {
