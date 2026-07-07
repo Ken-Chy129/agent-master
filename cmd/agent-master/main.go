@@ -39,7 +39,7 @@ func run(args []string) error {
 	switch args[0] {
 	// Background service management.
 	case "start":
-		return service.Install()
+		return cmdStart(args[1:])
 	case "stop":
 		return service.Stop()
 	case "restart":
@@ -135,6 +135,25 @@ func resolveClaudeBin(cfg *config.Config) string {
 	return "claude"
 }
 
+// cmdStart installs + starts the background service, then prints the connection
+// info so you can add this machine in a client without a separate `pair` step.
+func cmdStart(_ []string) error {
+	// Materialize config (and the token) before the daemon starts, so the
+	// printed token matches the one the daemon uses (avoids a first-run race).
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if err := service.Install(); err != nil {
+		return err
+	}
+	fmt.Println()
+	fmt.Println("Connect a client (paste the URL + token into the desktop/web app):")
+	fmt.Println()
+	printPairBody(cfg, false)
+	return nil
+}
+
 func cmdToken(_ []string) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -151,7 +170,7 @@ func cmdService(args []string) error {
 	}
 	switch args[0] {
 	case "install", "start":
-		return service.Install()
+		return cmdStart(nil)
 	case "uninstall":
 		return service.Uninstall()
 	case "stop":

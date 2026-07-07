@@ -10,23 +10,28 @@ import (
 	"github.com/Ken-Chy129/agent-master/internal/config"
 )
 
-// cmdPair prints this machine's connection info for a client: candidate base
-// URLs, the token, an `agentmaster://pair` deep link, and a QR of that link.
+// cmdPair prints this machine's full connection info for a client: candidate
+// base URLs, the token, an `agentmaster://pair` deep link, and a QR of that link.
 func cmdPair(_ []string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
-
-	urls := candidateBaseURLs(cfg)
-	primary := urls[0]
-	deeplink := fmt.Sprintf(
-		"agentmaster://pair?url=%s&token=%s",
-		url.QueryEscape(primary), url.QueryEscape(cfg.Token),
-	)
-
 	fmt.Println("Pair a client with this machine:")
 	fmt.Println()
+	printPairBody(cfg, true)
+	return nil
+}
+
+// printPairBody prints the URLs / token / deep link. With withQR it also renders
+// a scannable QR and the Tailscale tip; without, it points at `agent-master pair`.
+func printPairBody(cfg *config.Config, withQR bool) {
+	urls := candidateBaseURLs(cfg)
+	deeplink := fmt.Sprintf(
+		"agentmaster://pair?url=%s&token=%s",
+		url.QueryEscape(urls[0]), url.QueryEscape(cfg.Token),
+	)
+
 	fmt.Println("  Base URL(s):")
 	for _, u := range urls {
 		fmt.Printf("    %s\n", u)
@@ -36,12 +41,16 @@ func cmdPair(_ []string) error {
 	fmt.Println("  Deep link (desktop app / scan on phone):")
 	fmt.Printf("    %s\n", deeplink)
 	fmt.Println()
-	qrterminal.GenerateHalfBlock(deeplink, qrterminal.L, stdoutWriter{})
-	fmt.Println()
-	fmt.Println("Tip: for access from anywhere without exposing a public port,")
-	fmt.Println("put this machine and your client on the same Tailscale tailnet")
-	fmt.Println("and use the tailnet URL (set it as public_url in config).")
-	return nil
+
+	if withQR {
+		qrterminal.GenerateHalfBlock(deeplink, qrterminal.L, stdoutWriter{})
+		fmt.Println()
+		fmt.Println("Tip: for access from anywhere without exposing a public port,")
+		fmt.Println("put this machine and your client on the same Tailscale tailnet")
+		fmt.Println("and use the tailnet URL (set it as public_url in config).")
+	} else {
+		fmt.Println("  Scan a QR to pair a phone:  agent-master pair")
+	}
 }
 
 // candidateBaseURLs returns likely reachable base URLs, most specific first.
