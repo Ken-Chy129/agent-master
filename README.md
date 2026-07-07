@@ -95,9 +95,20 @@ npm run dev -w @agent-master/web    # Vite on http://localhost:5173
 tokens in the OS-encrypted secure store (Electron `safeStorage`), and handles
 `agentmaster://` pairing deep links.
 
+Download the prebuilt macOS app from the
+[Releases page](https://github.com/Ken-Chy129/agent-master/releases/latest)
+(`agent-master-<version>-<arch>.dmg` — `arm64` for Apple Silicon, `x64` for
+Intel). The build is unsigned, so on first launch clear the download quarantine:
+
+```bash
+xattr -cr /Applications/agent-master.app   # then open normally
+```
+
+Or build it yourself on macOS:
+
 ```bash
 npm run dev -w @agent-master/desktop    # dev (needs the web dev server)
-npm run dist -w @agent-master/desktop   # package a macOS app (run on macOS)
+npm run dist -w @agent-master/desktop   # package a .dmg + .zip into release/
 ```
 
 **Reachability**: put your machines and client on one **Tailscale** tailnet and

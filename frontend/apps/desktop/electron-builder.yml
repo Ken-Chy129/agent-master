@@ -29,6 +29,10 @@ extraMetadata:
 
 mac:
   category: public.app-category.developer-tools
+  # No Apple Developer cert in CI, so this is an unsigned build. electron-builder
+  # applies an ad-hoc signature so the app still launches on Apple Silicon; users
+  # clear the download quarantine once (`xattr -cr`, see the release notes).
+  artifactName: ${productName}-${version}-${arch}.${ext}
   target:
     - target: dmg
       arch:
