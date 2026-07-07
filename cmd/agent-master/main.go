@@ -147,10 +147,13 @@ func cmdStart(_ []string) error {
 	if err := service.Install(); err != nil {
 		return err
 	}
+	fmt.Println("✓ agent-master is running.")
 	fmt.Println()
-	fmt.Println("Connect a client (paste the URL + token into the desktop/web app):")
+	fmt.Println("Add this machine in your client:")
+	fmt.Printf("  URL     %s\n", candidateBaseURLs(cfg)[0])
+	fmt.Printf("  Token   %s\n", cfg.Token)
 	fmt.Println()
-	printPairBody(cfg, false)
+	fmt.Println("More addresses / QR to pair a phone:  agent-master pair")
 	return nil
 }
 

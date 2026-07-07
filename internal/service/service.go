@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 const (
@@ -110,20 +111,18 @@ WantedBy=default.target
 	if err := os.WriteFile(unitPath, []byte(unit), 0o644); err != nil {
 		return err
 	}
-	fmt.Println("wrote", unitPath)
 
-	if err := runCmd("systemctl", "--user", "daemon-reload"); err != nil {
+	if err := runQuiet("systemctl", "--user", "daemon-reload"); err != nil {
 		return systemdHint(err)
 	}
-	if err := runCmd("systemctl", "--user", "enable", "--now", unitName); err != nil {
+	if err := runQuiet("systemctl", "--user", "enable", "--now", unitName); err != nil {
 		return systemdHint(err)
 	}
-	fmt.Println("agent-master service installed and started")
 	return nil
 }
 
 func uninstallSystemd() error {
-	_ = runCmd("systemctl", "--user", "disable", "--now", unitName)
+	_ = runQuiet("systemctl", "--user", "disable", "--now", unitName)
 	unitPath, err := systemdUnitPath()
 	if err != nil {
 		return err
@@ -131,7 +130,7 @@ func uninstallSystemd() error {
 	if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	_ = runCmd("systemctl", "--user", "daemon-reload")
+	_ = runQuiet("systemctl", "--user", "daemon-reload")
 	fmt.Println("agent-master service removed")
 	return nil
 }
@@ -178,19 +177,17 @@ func installLaunchd(exe string) error {
 	if err := os.WriteFile(plistPath, []byte(plist), 0o644); err != nil {
 		return err
 	}
-	fmt.Println("wrote", plistPath)
 
 	target := "gui/" + uid()
-	_ = runCmd("launchctl", "bootout", target+"/"+macLabel) // best-effort clear of a stale instance
-	if err := runCmd("launchctl", "bootstrap", target, plistPath); err != nil {
+	_ = runQuiet("launchctl", "bootout", target+"/"+macLabel) // best-effort clear of a stale instance (ignore "No such process")
+	if err := runQuiet("launchctl", "bootstrap", target, plistPath); err != nil {
 		return fmt.Errorf("%w\n(hint: launchctl bootstrap %s %s)", err, target, plistPath)
 	}
-	fmt.Println("agent-master service installed and started")
 	return nil
 }
 
 func uninstallLaunchd() error {
-	_ = runCmd("launchctl", "bootout", "gui/"+uid()+"/"+macLabel)
+	_ = runQuiet("launchctl", "bootout", "gui/"+uid()+"/"+macLabel)
 	plistPath, err := launchdPlistPath()
 	if err != nil {
 		return err
@@ -230,4 +227,17 @@ func runCmd(name string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// runQuiet runs a command discarding its output on success; on failure it folds
+// any output into the error. Used for install/uninstall so best-effort steps
+// (e.g. clearing a stale launchd instance) don't leak scary-looking messages.
+func runQuiet(name string, args ...string) error {
+	out, err := exec.Command(name, args...).CombinedOutput()
+	if err != nil {
+		if msg := strings.TrimSpace(string(out)); msg != "" {
+			return fmt.Errorf("%w: %s", err, msg)
+		}
+	}
+	return err
 }
