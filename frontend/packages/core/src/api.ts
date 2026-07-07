@@ -8,6 +8,7 @@ import type {
   SendRequest,
   SendResponse,
   Session,
+  WorkspaceListing,
 } from './types.js';
 
 export interface ApiClientConfig {
@@ -124,6 +125,13 @@ export class ApiClient {
     return this.request<SendResponse>('POST', `/api/sessions/${encodeURIComponent(id)}/send`, {
       body,
     });
+  }
+
+  /** GET /api/workspaces?path= — browse directories to pick a workspace. */
+  listWorkspaces(path?: string): Promise<WorkspaceListing> {
+    const q = new URLSearchParams();
+    if (path != null && path !== '') q.set('path', path);
+    return this.request<WorkspaceListing>('GET', `/api/workspaces${qs(q)}`);
   }
 
   /** POST /api/sessions/:id/interrupt */

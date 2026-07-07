@@ -7,6 +7,7 @@ import {
   type MachineProfile,
   type RecentSession,
   type WireEvent,
+  type WorkspaceListing,
 } from '@agent-master/core';
 import { create } from 'zustand';
 import { getBridge, machineStore } from './storage.js';
@@ -89,6 +90,7 @@ interface StoreState {
 
   // sessions
   refreshSessions: () => Promise<void>;
+  listWorkspaces: (path?: string) => Promise<WorkspaceListing | null>;
   createSession: (req: CreateSessionRequest) => Promise<void>;
   openSession: (id: string) => Promise<void>;
   closeSession: () => void;
@@ -225,6 +227,17 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ sessions: res.sessions, sessionsLoading: false });
     } catch (err) {
       set({ sessionsLoading: false, error: errText(err) });
+    }
+  },
+
+  listWorkspaces: async (path) => {
+    const { api } = get();
+    if (!api) return null;
+    try {
+      return await api.listWorkspaces(path);
+    } catch (err) {
+      set({ error: errText(err) });
+      return null;
     }
   },
 

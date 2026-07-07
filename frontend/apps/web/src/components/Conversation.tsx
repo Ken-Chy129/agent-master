@@ -52,7 +52,8 @@ export function Conversation() {
   return (
     <>
       <div className="main-header">
-        <RunStatus runActive={runActive} lastFinished={lastFinished} streamStatus={streamStatus} />
+        <RunStatus runActive={runActive} lastFinished={lastFinished} />
+        <StreamIndicator status={streamStatus} />
         <div className="spacer" />
         {runActive && (
           <button className="danger" onClick={() => void interrupt()}>
@@ -77,11 +78,9 @@ export function Conversation() {
 function RunStatus({
   runActive,
   lastFinished,
-  streamStatus,
 }: {
   runActive: boolean;
   lastFinished: string | null;
-  streamStatus: string;
 }) {
   if (runActive) {
     return (
@@ -107,7 +106,28 @@ function RunStatus({
       </span>
     );
   }
-  return <span className="status-line">{streamStatus}</span>;
+  return <span className="run-pill idle">idle</span>;
+}
+
+/** Shows the SSE connection state only when it's not cleanly open. */
+function StreamIndicator({ status }: { status: string }) {
+  if (status === 'connecting') {
+    return (
+      <span className="run-pill" style={{ color: 'var(--warn)', borderColor: 'var(--warn)' }}>
+        <span className="dot pulse" style={{ background: 'var(--warn)' }} />
+        connecting…
+      </span>
+    );
+  }
+  if (status === 'error') {
+    return (
+      <span className="run-pill" style={{ color: 'var(--warn)', borderColor: 'var(--warn)' }}>
+        <span className="dot pulse" style={{ background: 'var(--warn)' }} />
+        reconnecting…
+      </span>
+    );
+  }
+  return null;
 }
 
 function EventRow({

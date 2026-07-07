@@ -42,6 +42,7 @@ func New(cfg *config.Config, st *store.Store, svc *session.Service) *Server {
 	mux.Handle("POST /api/sessions/{id}/send", s.auth(http.HandlerFunc(s.handleSend)))
 	mux.Handle("POST /api/sessions/{id}/interrupt", s.auth(http.HandlerFunc(s.handleInterrupt)))
 	mux.Handle("GET /api/sessions/{id}/stream", s.auth(http.HandlerFunc(s.handleStream)))
+	mux.Handle("GET /api/workspaces", s.auth(http.HandlerFunc(s.handleWorkspaces)))
 
 	s.http = &http.Server{
 		Addr:              cfg.Addr(),

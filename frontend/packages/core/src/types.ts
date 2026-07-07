@@ -134,3 +134,17 @@ export interface SendResponse {
 export interface OkResponse {
   ok: true;
 }
+
+/** A browsable directory entry (GET /api/workspaces). */
+export interface WorkspaceEntry {
+  name: string;
+  path: string;
+}
+
+/** GET /api/workspaces?path= — directory listing for choosing a workspace. */
+export interface WorkspaceListing {
+  path: string; // current directory ("" when listing roots)
+  parent: string; // parent directory ("" if none / not allowed)
+  roots: string[]; // configured workspace roots (may be empty)
+  entries: WorkspaceEntry[];
+}

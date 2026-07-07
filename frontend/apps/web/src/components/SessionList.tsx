@@ -1,32 +1,24 @@
+import { useState } from 'react';
 import { useStore } from '../store.js';
+import { NewSessionModal } from './NewSessionModal.js';
 
 export function SessionList() {
   const sessions = useStore((s) => s.sessions);
   const sessionsLoading = useStore((s) => s.sessionsLoading);
   const currentSessionId = useStore((s) => s.currentSessionId);
   const openSession = useStore((s) => s.openSession);
-  const createSession = useStore((s) => s.createSession);
   const refreshSessions = useStore((s) => s.refreshSessions);
 
-  const onNew = async () => {
-    const workspaceDir = window.prompt(
-      'Workspace directory (absolute path on the daemon machine):',
-    );
-    if (!workspaceDir || !workspaceDir.trim()) return;
-    const title = window.prompt('Session title (optional):') ?? undefined;
-    await createSession({
-      workspaceDir: workspaceDir.trim(),
-      title: title?.trim() || undefined,
-    });
-  };
+  const [showNew, setShowNew] = useState(false);
 
   return (
     <>
       <div className="sidebar-actions">
-        <button className="primary" onClick={onNew}>
+        <button className="primary" onClick={() => setShowNew(true)}>
           + New session
         </button>
       </div>
+      {showNew && <NewSessionModal onClose={() => setShowNew(false)} />}
 
       <div className="session-list">
         {sessionsLoading && sessions.length === 0 && (
