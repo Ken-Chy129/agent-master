@@ -7,8 +7,24 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Ken-Chy129/agent-master/internal/render"
 	"github.com/Ken-Chy129/agent-master/internal/store"
 )
+
+// handleRender returns the current render snapshot for a session (one-shot).
+func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("id")
+	if _, err := s.svc.GetSession(sessionID); err != nil {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	events, err := s.svc.EventsAfter(sessionID, 0, renderCap)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, render.Compute(events))
+}
 
 // wireEvent is the JSON shape sent to clients over SSE and /messages.
 type wireEvent struct {
@@ -62,16 +78,20 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	subID, live := s.svc.Subscribe(sessionID)
 	defer s.svc.Unsubscribe(sessionID, subID)
 
-	// Replay committed history after the cursor.
-	replay, err := s.svc.EventsAfter(sessionID, afterSeq, 1000)
-	if err == nil {
-		for _, e := range replay {
-			if e.Seq > afterSeq {
-				writeSSE(w, e)
-				afterSeq = e.Seq
-			}
+	// Full committed ledger drives render_state; a suffix drives am_event replay
+	// (resume) and its cursor. `events` accumulates live commits for re-render.
+	events, _ := s.svc.EventsAfter(sessionID, 0, renderCap)
+	lastSeq := int64(0)
+	if n := len(events); n > 0 {
+		lastSeq = events[n-1].Seq
+	}
+	for _, e := range events {
+		if e.Seq > afterSeq {
+			writeSSE(w, e)
+			afterSeq = e.Seq
 		}
 	}
+	writeRender(w, render.Compute(events))
 	flusher.Flush()
 
 	ctx := r.Context()
@@ -100,15 +120,31 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 					flusher.Flush()
 				}
 			case f.Event != nil:
-				if f.Event.Seq <= afterSeq {
-					continue // already delivered during replay
+				if f.Event.Seq <= lastSeq {
+					continue // already in our accumulated ledger
 				}
-				writeSSE(w, *f.Event)
-				afterSeq = f.Event.Seq
+				events = append(events, *f.Event)
+				lastSeq = f.Event.Seq
+				if f.Event.Seq > afterSeq {
+					writeSSE(w, *f.Event)
+					afterSeq = f.Event.Seq
+				}
+				writeRender(w, render.Compute(events))
 				flusher.Flush()
 			}
 		}
 	}
+}
+
+// renderCap bounds how much history feeds render_state (v1: recompute in memory).
+const renderCap = 2000
+
+func writeRender(w http.ResponseWriter, rs render.RenderState) {
+	data, err := json.Marshal(rs)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(w, "event: am_render\ndata: %s\n\n", data)
 }
 
 func writeSSE(w http.ResponseWriter, e store.Event) {

@@ -1,59 +1,32 @@
-import { useEffect, useMemo, useRef } from 'react';
-import type {
-  AssistantMessagePayload,
-  ErrorPayload,
-  RunFinishedPayload,
-  ToolCallPayload,
-  ToolResultPayload,
-  UserMessagePayload,
-  WireEvent,
-} from '@agent-master/core';
-import { useStore } from '../store.js';
+import { useEffect, useRef } from 'react';
+import type { RenderRow } from '@agent-master/core';
+import { EMPTY_RENDER, useStore } from '../store.js';
 
 export function Conversation() {
   const currentSessionId = useStore((s) => s.currentSessionId);
-  const events = useStore((s) =>
-    currentSessionId ? s.eventsBySession[currentSessionId] ?? [] : [],
+  const render = useStore((s) =>
+    currentSessionId ? (s.renderBySession[currentSessionId] ?? EMPTY_RENDER) : EMPTY_RENDER,
   );
-  const historyLoading = useStore((s) => s.historyLoading);
   const runActive = useStore((s) => s.runActive);
   const streamStatus = useStore((s) => s.streamStatus);
   const streamingText = useStore((s) => s.streamingText);
   const interrupt = useStore((s) => s.interrupt);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const rows = render.rows;
 
-  // Index tool_result output by tool id so we can attach it to its tool_call row.
-  const resultById = useMemo(() => {
-    const map = new Map<string, unknown>();
-    for (const e of events) {
-      if (e.type === 'tool_result') {
-        const p = e.payload as ToolResultPayload;
-        if (p?.id != null) map.set(p.id, p.output);
-      }
-    }
-    return map;
-  }, [events]);
-
-  // Latest run_finished state, for the header pill.
-  const lastFinished = useMemo(() => {
-    for (let i = events.length - 1; i >= 0; i--) {
-      const e = events[i];
-      if (e?.type === 'run_finished') return (e.payload as RunFinishedPayload).state;
-    }
-    return null;
-  }, [events]);
-
-  // Auto-scroll to bottom on new events and as the live preview grows.
+  // Auto-scroll on new rows and as the live preview grows.
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [events.length, streamingText]);
+  }, [rows.length, streamingText]);
+
+  const connecting = streamStatus === 'connecting' && rows.length === 0;
 
   return (
     <>
       <div className="main-header">
-        <RunStatus runActive={runActive} lastFinished={lastFinished} />
+        <RunStatus runActive={runActive} lastRunState={render.lastRunState} />
         <StreamIndicator status={streamStatus} />
         <div className="spacer" />
         {runActive && (
@@ -64,12 +37,12 @@ export function Conversation() {
       </div>
 
       <div className="conversation" ref={scrollRef}>
-        {historyLoading && events.length === 0 && <div className="empty">Loading history…</div>}
-        {!historyLoading && events.length === 0 && (
+        {connecting && <div className="empty">Loading…</div>}
+        {!connecting && rows.length === 0 && (
           <div className="empty">No messages yet. Say something below.</div>
         )}
-        {events.map((e) => (
-          <EventRow key={e.seq} event={e} resultById={resultById} />
+        {rows.map((row) => (
+          <Row key={row.id} row={row} />
         ))}
         {streamingText && (
           <div className="bubble assistant streaming">
@@ -85,10 +58,10 @@ export function Conversation() {
 
 function RunStatus({
   runActive,
-  lastFinished,
+  lastRunState,
 }: {
   runActive: boolean;
-  lastFinished: string | null;
+  lastRunState?: string;
 }) {
   if (runActive) {
     return (
@@ -98,7 +71,7 @@ function RunStatus({
       </span>
     );
   }
-  if (lastFinished === 'done') {
+  if (lastRunState === 'done') {
     return (
       <span className="run-pill done">
         <span className="dot" />
@@ -106,11 +79,11 @@ function RunStatus({
       </span>
     );
   }
-  if (lastFinished === 'failed' || lastFinished === 'interrupted') {
+  if (lastRunState === 'failed' || lastRunState === 'interrupted') {
     return (
-      <span className={`run-pill ${lastFinished}`}>
+      <span className={`run-pill ${lastRunState}`}>
         <span className="dot" />
-        {lastFinished}
+        {lastRunState}
       </span>
     );
   }
@@ -119,83 +92,52 @@ function RunStatus({
 
 /** Shows the SSE connection state only when it's not cleanly open. */
 function StreamIndicator({ status }: { status: string }) {
-  if (status === 'connecting') {
+  if (status === 'connecting' || status === 'error') {
+    const label = status === 'connecting' ? 'connecting…' : 'reconnecting…';
     return (
       <span className="run-pill" style={{ color: 'var(--warn)', borderColor: 'var(--warn)' }}>
         <span className="dot pulse" style={{ background: 'var(--warn)' }} />
-        connecting…
-      </span>
-    );
-  }
-  if (status === 'error') {
-    return (
-      <span className="run-pill" style={{ color: 'var(--warn)', borderColor: 'var(--warn)' }}>
-        <span className="dot pulse" style={{ background: 'var(--warn)' }} />
-        reconnecting…
+        {label}
       </span>
     );
   }
   return null;
 }
 
-function EventRow({
-  event,
-  resultById,
-}: {
-  event: WireEvent;
-  resultById: Map<string, unknown>;
-}) {
-  switch (event.type) {
-    case 'user_message': {
-      const p = event.payload as UserMessagePayload;
+/** Dumb-renders one server-derived row. Tool pairing/status is already done server-side. */
+function Row({ row }: { row: RenderRow }) {
+  switch (row.kind) {
+    case 'user':
       return (
         <div className="bubble user">
           <div className="bubble-role">you</div>
-          {p.text}
+          {row.text}
         </div>
       );
-    }
-    case 'assistant_message': {
-      const p = event.payload as AssistantMessagePayload;
+    case 'assistant':
       return (
         <div className="bubble assistant">
           <div className="bubble-role">assistant</div>
-          {p.text}
+          {row.text}
         </div>
       );
-    }
-    case 'tool_call': {
-      const p = event.payload as ToolCallPayload;
-      const output = resultById.get(p.id);
-      const hasResult = resultById.has(p.id);
+    case 'tool':
       return (
         <details className="tool">
           <summary>
             <span className="tool-badge">tool</span>
-            <span className="tool-name">{p.name}</span>
+            <span className="tool-name">{row.name}</span>
             <span className="spacer" />
-            <span className="status-line">{hasResult ? 'done' : 'running…'}</span>
+            <span className="status-line">{row.status === 'done' ? 'done' : 'running…'}</span>
           </summary>
-          <pre>{formatValue(p.input)}</pre>
-          {hasResult && (
-            <pre style={{ borderTop: '1px dashed var(--border)' }}>
-              → {formatValue(output)}
-            </pre>
+          <pre>{formatValue(row.input)}</pre>
+          {row.output !== undefined && row.output !== null && (
+            <pre style={{ borderTop: '1px dashed var(--border)' }}>→ {formatValue(row.output)}</pre>
           )}
         </details>
       );
-    }
-    case 'tool_result':
-      // Rendered inline with its tool_call above; skip standalone.
-      return null;
-    case 'run_started':
-    case 'run_finished':
-      // Reflected in the header pill; no inline row.
-      return null;
-    case 'error': {
-      const p = event.payload as ErrorPayload;
-      return <div className="bubble error">error: {p.message}</div>;
-    }
+    case 'error':
+      return <div className="bubble error">error: {row.text}</div>;
     default:
       return null;
   }

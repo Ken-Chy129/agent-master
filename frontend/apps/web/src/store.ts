@@ -6,7 +6,7 @@ import {
   type CreateSessionRequest,
   type MachineProfile,
   type RecentSession,
-  type WireEvent,
+  type RenderState,
   type WorkspaceListing,
 } from '@agent-master/core';
 import { create } from 'zustand';
@@ -15,18 +15,7 @@ import { getBridge, machineStore } from './storage.js';
 /** Coarse SSE connection status for the currently-open session. */
 export type StreamStatus = 'idle' | 'connecting' | 'open' | 'error';
 
-/** Insert/replace an event by seq and keep the list sorted ascending. */
-function upsertEvent(list: WireEvent[], event: WireEvent): WireEvent[] {
-  const idx = list.findIndex((e) => e.seq === event.seq);
-  if (idx >= 0) {
-    const next = list.slice();
-    next[idx] = event;
-    return next;
-  }
-  const next = [...list, event];
-  next.sort((a, b) => a.seq - b.seq);
-  return next;
-}
+const EMPTY_RENDER: RenderState = { basedOnSeq: 0, rows: [], tailActivity: 'idle' };
 
 function makeClients(m: MachineProfile | null): { api: ApiClient | null; sse: SseClient | null } {
   if (!m) return { api: null, sse: null };
@@ -42,17 +31,6 @@ function errText(err: unknown): string {
   if (err instanceof ApiError) return `${err.message} (HTTP ${err.status})`;
   if (err instanceof Error) return err.message;
   return String(err);
-}
-
-/** Derive whether a run is active from the current event list (last run event wins). */
-function computeRunActive(events: WireEvent[]): boolean {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i];
-    if (!e) continue;
-    if (e.type === 'run_finished') return false;
-    if (e.type === 'run_started') return true;
-  }
-  return false;
 }
 
 export interface AddMachineInput {
@@ -75,12 +53,12 @@ interface StoreState {
   sessionsLoading: boolean;
 
   currentSessionId: string | null;
-  eventsBySession: Record<string, WireEvent[]>;
-  historyLoading: boolean;
+  // Server-derived transcript per session (we dumb-render this).
+  renderBySession: Record<string, RenderState>;
 
   streamStatus: StreamStatus;
   runActive: boolean;
-  /** Live token-preview text for the current run; cleared when the committed message lands. */
+  /** Live token-preview text for the current run; cleared when a committed snapshot lands. */
   streamingText: string;
   error: string | null;
 
@@ -121,8 +99,7 @@ export const useStore = create<StoreState>((set, get) => ({
   sessions: [],
   sessionsLoading: false,
   currentSessionId: null,
-  eventsBySession: {},
-  historyLoading: false,
+  renderBySession: {},
   streamStatus: 'idle',
   runActive: false,
   streamingText: '',
@@ -195,9 +172,10 @@ export const useStore = create<StoreState>((set, get) => ({
           sse: null,
           sessions: [],
           currentSessionId: null,
-          eventsBySession: {},
+          renderBySession: {},
           streamStatus: 'idle',
           runActive: false,
+          streamingText: '',
         });
       }
     }
@@ -213,7 +191,7 @@ export const useStore = create<StoreState>((set, get) => ({
       sse,
       sessions: [],
       currentSessionId: null,
-      eventsBySession: {},
+      renderBySession: {},
       streamStatus: 'idle',
       runActive: false,
       streamingText: '',
@@ -258,48 +236,26 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   openSession: async (id) => {
-    const { api, sse } = get();
-    if (!api || !sse) return;
+    const { sse } = get();
+    if (!sse) return;
 
     stopStream();
-    set({
-      currentSessionId: id,
-      historyLoading: true,
-      streamStatus: 'connecting',
-      streamingText: '',
-      error: null,
-    });
+    set({ currentSessionId: id, streamStatus: 'connecting', streamingText: '', error: null });
 
-    let history: WireEvent[] = [];
-    try {
-      const res = await api.getMessages(id, { limit: 200 });
-      history = res.events;
-    } catch (err) {
-      set({ historyLoading: false, streamStatus: 'error', error: errText(err) });
-      return;
-    }
-
-    set((state) => ({
-      historyLoading: false,
-      eventsBySession: { ...state.eventsBySession, [id]: history },
-      runActive: computeRunActive(history),
-    }));
-
-    const lastSeq = history.length > 0 ? history[history.length - 1]!.seq : 0;
+    // The stream's initial am_render snapshot provides the rows; no separate
+    // history fetch needed. am_event only advances the SseClient resume cursor.
     activeUnsubscribe = sse.subscribe(id, {
-      afterSeq: lastSeq,
-      onEvent: (event) => {
+      afterSeq: 0,
+      onEvent: () => {},
+      onRender: (rs) => {
         if (get().currentSessionId !== id) return;
-        // The committed message (or run end) supersedes the live preview.
-        const clearPreview = event.type === 'assistant_message' || event.type === 'run_finished';
-        set((state) => {
-          const list = upsertEvent(state.eventsBySession[id] ?? [], event);
-          return {
-            eventsBySession: { ...state.eventsBySession, [id]: list },
-            runActive: computeRunActive(list),
-            ...(clearPreview ? { streamingText: '' } : {}),
-          };
-        });
+        set((state) => ({
+          renderBySession: { ...state.renderBySession, [id]: rs },
+          runActive: rs.tailActivity === 'running',
+          streamStatus: 'open',
+          // A committed snapshot supersedes any in-flight token preview.
+          streamingText: '',
+        }));
       },
       onDelta: (delta) => {
         if (get().currentSessionId !== id) return;
@@ -316,7 +272,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   closeSession: () => {
     stopStream();
-    set({ currentSessionId: null, streamStatus: 'idle', runActive: false });
+    set({ currentSessionId: null, streamStatus: 'idle', runActive: false, streamingText: '' });
   },
 
   sendMessage: async (text) => {
@@ -343,3 +299,5 @@ export const useStore = create<StoreState>((set, get) => ({
 
   clearError: () => set({ error: null }),
 }));
+
+export { EMPTY_RENDER };

@@ -1,10 +1,12 @@
-import type { StreamDelta, WireEvent } from './types.js';
+import type { RenderState, StreamDelta, WireEvent } from './types.js';
 
 export interface SseSubscribeOptions {
   /** Resume from this seq; only events with seq > afterSeq are delivered. Default 0. */
   afterSeq?: number;
-  /** Called for every parsed `am_event` frame. */
+  /** Called for every parsed `am_event` frame (drives the resume cursor). */
   onEvent: (event: WireEvent) => void;
+  /** Called for every `am_render` snapshot (the transcript to display). */
+  onRender?: (state: RenderState) => void;
   /** Called for every live `am_delta` frame (token-level preview; ephemeral). */
   onDelta?: (delta: StreamDelta) => void;
   /** Called on transport errors (before an auto-reconnect is scheduled). */
@@ -122,6 +124,12 @@ export class SseClient {
         opts.onEvent(event);
       });
 
+      // Server-derived render snapshot (the transcript to display).
+      source.addEventListener('am_render', (ev: MessageEvent) => {
+        const rs = parseRender(ev.data);
+        if (rs) opts.onRender?.(rs);
+      });
+
       // Live-only token deltas: no seq, do not advance lastSeq / resume cursor.
       source.addEventListener('am_delta', (ev: MessageEvent) => {
         const delta = parseDelta(ev.data);
@@ -163,6 +171,17 @@ function parseWireEvent(data: unknown): WireEvent | null {
   try {
     const obj = JSON.parse(data) as WireEvent;
     if (obj && typeof obj.seq === 'number' && typeof obj.type === 'string') return obj;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function parseRender(data: unknown): RenderState | null {
+  if (typeof data !== 'string') return null;
+  try {
+    const obj = JSON.parse(data) as RenderState;
+    if (obj && Array.isArray(obj.rows) && typeof obj.basedOnSeq === 'number') return obj;
     return null;
   } catch {
     return null;

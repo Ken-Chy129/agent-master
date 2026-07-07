@@ -152,6 +152,32 @@ export interface WorkspaceEntry {
   path: string;
 }
 
+// --- Server-derived render state (SSE `am_render`, GET /api/sessions/:id/render) ---
+
+/** One ready-to-display row; `kind` selects which fields are meaningful. */
+export interface RenderRow {
+  kind: 'user' | 'assistant' | 'tool' | 'error';
+  id: string;
+  seq: number;
+  text?: string; // user / assistant / error
+  name?: string; // tool
+  input?: unknown; // tool
+  output?: unknown; // tool (present once the result lands)
+  status?: 'running' | 'done'; // tool
+}
+
+/**
+ * The server-folded transcript snapshot. Clients dumb-render `rows` and derive
+ * run state from `tailActivity` / `lastRunState` — no local tool pairing,
+ * run-status, or ordering logic.
+ */
+export interface RenderState {
+  basedOnSeq: number;
+  rows: RenderRow[];
+  tailActivity: 'idle' | 'running';
+  lastRunState?: 'done' | 'interrupted' | 'failed';
+}
+
 /** GET /api/workspaces?path= — directory listing for choosing a workspace. */
 export interface WorkspaceListing {
   path: string; // current directory ("" when listing roots)
