@@ -1,10 +1,12 @@
-import type { WireEvent } from './types.js';
+import type { StreamDelta, WireEvent } from './types.js';
 
 export interface SseSubscribeOptions {
   /** Resume from this seq; only events with seq > afterSeq are delivered. Default 0. */
   afterSeq?: number;
   /** Called for every parsed `am_event` frame. */
   onEvent: (event: WireEvent) => void;
+  /** Called for every live `am_delta` frame (token-level preview; ephemeral). */
+  onDelta?: (delta: StreamDelta) => void;
   /** Called on transport errors (before an auto-reconnect is scheduled). */
   onError?: (error: unknown) => void;
   /** Called when a reconnect is (re)established, with the seq we resume from. */
@@ -120,6 +122,12 @@ export class SseClient {
         opts.onEvent(event);
       });
 
+      // Live-only token deltas: no seq, do not advance lastSeq / resume cursor.
+      source.addEventListener('am_delta', (ev: MessageEvent) => {
+        const delta = parseDelta(ev.data);
+        if (delta) opts.onDelta?.(delta);
+      });
+
       // Server-initiated resync after a dropped-subscriber overflow.
       source.addEventListener('reconnect', (ev: MessageEvent) => {
         const target = parseReconnectSeq(ev.data);
@@ -155,6 +163,17 @@ function parseWireEvent(data: unknown): WireEvent | null {
   try {
     const obj = JSON.parse(data) as WireEvent;
     if (obj && typeof obj.seq === 'number' && typeof obj.type === 'string') return obj;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function parseDelta(data: unknown): StreamDelta | null {
+  if (typeof data !== 'string') return null;
+  try {
+    const obj = JSON.parse(data) as StreamDelta;
+    if (obj && typeof obj.text === 'string') return obj;
     return null;
   } catch {
     return null;

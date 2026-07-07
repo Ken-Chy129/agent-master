@@ -35,7 +35,8 @@ func (c *Claude) Run(ctx context.Context, o RunOptions, onEvent func(StreamEvent
 	args := []string{
 		"-p", o.Message,
 		"--output-format", "stream-json",
-		"--verbose", // required for stream-json to emit the full event stream
+		"--include-partial-messages", // emit token-level content_block_delta events
+		"--verbose",                  // required for stream-json to emit the full event stream
 	}
 	if o.NativeSessionID != "" {
 		args = append(args, "--resume", o.NativeSessionID)
@@ -112,6 +113,14 @@ func handleMessage(msg *claudeMsg, res *RunResult, onEvent func(StreamEvent)) {
 			res.NativeSessionID = msg.SessionID
 			onEvent(StreamEvent{Kind: KindSystem, NativeSessionID: msg.SessionID})
 		}
+	case "stream_event":
+		// Token-level partials. We forward only visible-answer text deltas;
+		// thinking/tool-input deltas are ignored (the full assistant message
+		// commits the final text and tool calls).
+		if e := msg.Event; e != nil && e.Type == "content_block_delta" &&
+			e.Delta != nil && e.Delta.Type == "text_delta" && e.Delta.Text != "" {
+			onEvent(StreamEvent{Kind: KindAssistantDelta, Text: e.Delta.Text, Index: e.Index})
+		}
 	case "assistant":
 		if msg.Message == nil {
 			return
@@ -160,12 +169,25 @@ func rawOrNil(r json.RawMessage) any {
 
 // claudeMsg is the subset of the stream-json protocol we consume.
 type claudeMsg struct {
-	Type      string       `json:"type"`
-	Subtype   string       `json:"subtype"`
-	SessionID string       `json:"session_id"`
-	Message   *claudeInner `json:"message"`
-	Result    string       `json:"result"`
-	IsError   bool         `json:"is_error"`
+	Type      string             `json:"type"`
+	Subtype   string             `json:"subtype"`
+	SessionID string             `json:"session_id"`
+	Message   *claudeInner       `json:"message"`
+	Event     *claudeStreamEvent `json:"event"` // type == "stream_event"
+	Result    string             `json:"result"`
+	IsError   bool               `json:"is_error"`
+}
+
+// claudeStreamEvent is the Anthropic streaming envelope inside a stream_event.
+type claudeStreamEvent struct {
+	Type  string       `json:"type"` // content_block_delta, content_block_start, ...
+	Index int          `json:"index"`
+	Delta *claudeDelta `json:"delta"`
+}
+
+type claudeDelta struct {
+	Type string `json:"type"` // text_delta, thinking_delta, input_json_delta
+	Text string `json:"text"`
 }
 
 type claudeInner struct {

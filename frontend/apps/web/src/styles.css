@@ -514,3 +514,19 @@ textarea:focus {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* Live streaming preview bubble */
+.bubble.assistant.streaming {
+  opacity: 0.92;
+}
+.stream-cursor {
+  display: inline-block;
+  margin-left: 1px;
+  color: var(--accent);
+  animation: am-blink 1s steps(2, start) infinite;
+}
+@keyframes am-blink {
+  to {
+    visibility: hidden;
+  }
+}

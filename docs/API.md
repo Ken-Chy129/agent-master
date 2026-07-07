@@ -94,3 +94,21 @@ Notes:
 - Keep-alive: a `: ping` comment line every 30s.
 - On a dropped-subscriber overflow the server sends `event: reconnect` with
   `data: {"afterSeq": <n>}`; the client should reconnect using that seq.
+
+### Live deltas (`am_delta`)
+
+Token-level assistant text arrives as a separate **live-only** frame:
+
+```
+event: am_delta
+data: {"runId":"r_..","text":"partial fragment","index":1}
+```
+
+- No `id:` — deltas are **ephemeral and NOT resumable**. They are not written to
+  the ledger and are never replayed on reconnect. `after_seq` / `Last-Event-ID`
+  cursors are unaffected by deltas.
+- Fragments are incremental; concatenate them for a live typing preview.
+- The committed `assistant_message` event (an `am_event` with a seq) carries the
+  final text and is the source of truth. On receiving it (or `run_finished`),
+  clients should discard the accumulated preview.
+- Clients that ignore `am_delta` still render correctly from committed events.

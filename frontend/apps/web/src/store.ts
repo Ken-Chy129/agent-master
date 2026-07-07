@@ -80,6 +80,8 @@ interface StoreState {
 
   streamStatus: StreamStatus;
   runActive: boolean;
+  /** Live token-preview text for the current run; cleared when the committed message lands. */
+  streamingText: string;
   error: string | null;
 
   // lifecycle / machines
@@ -123,6 +125,7 @@ export const useStore = create<StoreState>((set, get) => ({
   historyLoading: false,
   streamStatus: 'idle',
   runActive: false,
+  streamingText: '',
   error: null,
 
   init: async () => {
@@ -213,6 +216,7 @@ export const useStore = create<StoreState>((set, get) => ({
       eventsBySession: {},
       streamStatus: 'idle',
       runActive: false,
+      streamingText: '',
       error: null,
     });
     if (api) void get().refreshSessions();
@@ -258,7 +262,13 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!api || !sse) return;
 
     stopStream();
-    set({ currentSessionId: id, historyLoading: true, streamStatus: 'connecting', error: null });
+    set({
+      currentSessionId: id,
+      historyLoading: true,
+      streamStatus: 'connecting',
+      streamingText: '',
+      error: null,
+    });
 
     let history: WireEvent[] = [];
     try {
@@ -280,13 +290,20 @@ export const useStore = create<StoreState>((set, get) => ({
       afterSeq: lastSeq,
       onEvent: (event) => {
         if (get().currentSessionId !== id) return;
+        // The committed message (or run end) supersedes the live preview.
+        const clearPreview = event.type === 'assistant_message' || event.type === 'run_finished';
         set((state) => {
           const list = upsertEvent(state.eventsBySession[id] ?? [], event);
           return {
             eventsBySession: { ...state.eventsBySession, [id]: list },
             runActive: computeRunActive(list),
+            ...(clearPreview ? { streamingText: '' } : {}),
           };
         });
+      },
+      onDelta: (delta) => {
+        if (get().currentSessionId !== id) return;
+        set((state) => ({ streamingText: state.streamingText + delta.text }));
       },
       onError: () => {
         if (get().currentSessionId === id) set({ streamStatus: 'error' });

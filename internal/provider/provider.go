@@ -21,7 +21,8 @@ const (
 // StreamEvent is one normalized event emitted during a run.
 type StreamEvent struct {
 	Kind            EventKind
-	Text            string // assistant text / final result text
+	Text            string // assistant text / final result text / delta fragment
+	Index           int    // assistant_delta: content-block index
 	ToolName        string // tool_call
 	ToolID          string // tool_call / tool_result correlation id
 	Input           any    // tool_call input

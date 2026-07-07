@@ -47,6 +47,17 @@ export interface WireEvent {
   createdAt: string;
 }
 
+/**
+ * A live-only, token-level assistant text fragment (SSE `am_delta`). Not part of
+ * the committed ledger and not resumable: the committed `assistant_message`
+ * carries the final text. Clients use deltas only for a live typing preview.
+ */
+export interface StreamDelta {
+  runId: string;
+  text: string;
+  index: number;
+}
+
 // --- Per-type payload shapes (payload is `unknown` on WireEvent; narrow with the
 // helpers/guards below or these interfaces when you know the event type). ---
 

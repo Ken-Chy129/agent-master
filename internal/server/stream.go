@@ -85,19 +85,28 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		case <-ping.C:
 			fmt.Fprint(w, ": ping\n\n")
 			flusher.Flush()
-		case e, ok := <-live:
+		case f, ok := <-live:
 			if !ok {
 				// Dropped by a full buffer: tell the client to reconnect.
 				fmt.Fprintf(w, "event: reconnect\ndata: {\"afterSeq\":%d}\n\n", afterSeq)
 				flusher.Flush()
 				return
 			}
-			if e.Seq <= afterSeq {
-				continue // already delivered during replay
+			switch {
+			case f.Delta != nil:
+				// Live-only token delta: no seq, not resumable.
+				if data, err := json.Marshal(f.Delta); err == nil {
+					fmt.Fprintf(w, "event: am_delta\ndata: %s\n\n", data)
+					flusher.Flush()
+				}
+			case f.Event != nil:
+				if f.Event.Seq <= afterSeq {
+					continue // already delivered during replay
+				}
+				writeSSE(w, *f.Event)
+				afterSeq = f.Event.Seq
+				flusher.Flush()
 			}
-			writeSSE(w, e)
-			afterSeq = e.Seq
-			flusher.Flush()
 		}
 	}
 }

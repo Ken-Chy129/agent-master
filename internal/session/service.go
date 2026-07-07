@@ -102,8 +102,9 @@ func (s *Service) EventsAfter(sessionID string, afterSeq int64, limit int) ([]st
 	return s.store.EventsAfter(sessionID, afterSeq, limit)
 }
 
-// Subscribe registers a live SSE listener.
-func (s *Service) Subscribe(sessionID string) (int, <-chan store.Event) {
+// Subscribe registers a live SSE listener. Frames are committed events (with a
+// seq) or live deltas (ephemeral).
+func (s *Service) Subscribe(sessionID string) (int, <-chan Frame) {
 	return s.bc.subscribe(sessionID)
 }
 
@@ -183,6 +184,9 @@ func (s *Service) runProvider(ctx context.Context, cancel context.CancelFunc, se
 				}
 				sess.NativeSessionID = e.NativeSessionID
 			}
+		case provider.KindAssistantDelta:
+			// Live-only: broadcast, do not commit to the ledger.
+			s.bc.publish(Frame{SessionID: sess.ID, Delta: &Delta{RunID: runID, Text: e.Text, Index: e.Index}})
 		case provider.KindAssistantMessage:
 			lastAssistant = e.Text
 			s.commit(sess.ID, "assistant_message", runID, map[string]any{"text": e.Text})
@@ -240,7 +244,7 @@ func (s *Service) commit(sessionID, typ, runID string, payload map[string]any) {
 	if err := s.store.BumpRecentSeq(sessionID, ev.Seq); err != nil {
 		slog.Error("bump recent seq", "err", err)
 	}
-	s.bc.publish(ev)
+	s.bc.publish(Frame{SessionID: sessionID, Event: &ev})
 }
 
 func (s *Service) touchRecent(sessionID, title, prev, activeRun string) {

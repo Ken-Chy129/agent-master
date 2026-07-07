@@ -18,6 +18,7 @@ export function Conversation() {
   const historyLoading = useStore((s) => s.historyLoading);
   const runActive = useStore((s) => s.runActive);
   const streamStatus = useStore((s) => s.streamStatus);
+  const streamingText = useStore((s) => s.streamingText);
   const interrupt = useStore((s) => s.interrupt);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -43,11 +44,11 @@ export function Conversation() {
     return null;
   }, [events]);
 
-  // Auto-scroll to bottom on new events.
+  // Auto-scroll to bottom on new events and as the live preview grows.
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [events.length]);
+  }, [events.length, streamingText]);
 
   return (
     <>
@@ -70,6 +71,13 @@ export function Conversation() {
         {events.map((e) => (
           <EventRow key={e.seq} event={e} resultById={resultById} />
         ))}
+        {streamingText && (
+          <div className="bubble assistant streaming">
+            <div className="bubble-role">assistant</div>
+            {streamingText}
+            <span className="stream-cursor">▌</span>
+          </div>
+        )}
       </div>
     </>
   );
