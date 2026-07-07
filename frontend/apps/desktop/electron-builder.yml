@@ -8,6 +8,13 @@ appId: com.agent-master.desktop
 productName: agent-master
 copyright: agent-master
 
+# Pin the Electron version explicitly. In this npm-workspaces repo `electron` is
+# hoisted to the root node_modules, so electron-builder (run from this package
+# dir) can't resolve it to compute the version, and the package.json range
+# ("^31.7.7") is not a fixed version — without this it fails with
+# "Cannot compute electron version from installed node modules".
+electronVersion: 31.7.7
+
 directories:
   output: release
   buildResources: build-resources

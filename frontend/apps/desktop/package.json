@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "description": "agent-master Electron desktop shell (wraps @agent-master/web, OS-secure token storage, agentmaster:// deep-link pairing)",
+  "author": "Ken-Chy129",
   "main": "dist-electron/main.js",
   "scripts": {
     "compile": "node build.mjs",
