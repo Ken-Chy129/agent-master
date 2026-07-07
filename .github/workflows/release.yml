@@ -1,0 +1,32 @@
+name: release
+
+# Push a tag like v0.1.0 to build cross-platform binaries and publish a Release.
+# Uses the built-in GITHUB_TOKEN — no personal token needed.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build release binaries
+        run: make release VERSION="${GITHUB_REF_NAME#v}"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/agent-master-*
