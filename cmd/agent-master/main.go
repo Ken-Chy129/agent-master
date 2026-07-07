@@ -60,7 +60,11 @@ func run(args []string) error {
 		fmt.Println(version.Version)
 		return nil
 	case "help", "-h", "--help":
-		usage()
+		if len(args) > 1 && (args[1] == "--all" || args[1] == "-a") {
+			usageAll()
+		} else {
+			usage()
+		}
 		return nil
 	// Back-compat alias: `service install|uninstall|status|start|stop|restart`.
 	case "service":
@@ -203,27 +207,47 @@ func cmdService(args []string) error {
 	}
 }
 
+// usage is the short, everyday help: the handful of commands most people use,
+// with the rest named on one line and the details behind `help --all`.
 func usage() {
-	fmt.Print(`agent-master — run Claude Code on this machine and manage it from anywhere.
+	fmt.Print(`agent-master — run Claude Code on this machine, manage it from anywhere.
+
+Usage:
+  agent-master <command>
+
+  start     Start in the background (and on boot); prints how to connect
+  status    Show whether it's running and how to connect
+  pair      Show URL, token, and a QR to add this machine in a client
+  stop      Stop it
+
+More:  restart · uninstall · token · serve · version   →  agent-master help --all
+Config & data live in ~/.agent-master/  (default port 8888).
+`)
+}
+
+// usageAll is the full grouped reference, including low-frequency and dev
+// commands, shown by `agent-master help --all`.
+func usageAll() {
+	fmt.Print(`agent-master — run Claude Code on this machine, manage it from anywhere.
 
 Usage:
   agent-master <command> [flags]
 
-Service:
-  start        Install and start the background service (auto-starts on boot/login)
-  stop         Stop the background service
-  restart      Restart the background service
-  status       Show whether the service is running
-  uninstall    Remove the background service
+Setup:
+  start        Start in the background (also on boot); prints how to connect
+  status       Show whether it's running and how to connect
+  stop         Stop it
+  restart      Restart it
+  uninstall    Stop and remove the background service
 
 Connect a client:
-  pair         Print this machine's URL, token, and a QR to add it in the app
+  pair         Print this machine's URL, token, and a QR to add it in an app
   token        Print just the auth token
 
-Other:
-  serve        Run in the foreground for dev/debug ([--port N] [--host H])
+Advanced:
+  serve        Run in the foreground for dev/debug: [--port N] [--host H]
   version      Print the version
 
-Config & data live under ~/.agent-master/  (default port 8888).
+Config & data live in ~/.agent-master/  (default port 8888).
 `)
 }
