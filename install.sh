@@ -104,8 +104,8 @@ main() {
 
   echo ""
   echo "Next:"
-  echo "  ${run} service install     # run as a background service"
-  echo "  ${run} pair                # show URL/token/QR to connect a client"
+  echo "  ${run} start     # run as a background service (auto-starts on boot/login)"
+  echo "  ${run} pair      # show URL/token/QR to connect a client"
 }
 
 main "$@"

@@ -111,14 +111,17 @@ Installs the latest release binary into `~/.local/bin` (no sudo). Override with
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Ken-Chy129/agent-master/main/install.sh | bash
 # ensure ~/.local/bin is on PATH (the installer prints this if needed)
-agent-master service install   # systemd (Linux) / launchd (macOS)
-agent-master pair              # show URL/token/QR to connect a client
+agent-master start   # install + start the background service (systemd / launchd)
+agent-master pair    # show URL/token/QR to connect a client
 ```
+
+Service commands: `start` / `stop` / `restart` / `status` / `uninstall`.
+`serve` runs in the foreground (dev/debug).
 
 ## Layout
 
 ```
-cmd/agent-master/   CLI entry: serve / service / token / version
+cmd/agent-master/   CLI entry: start / stop / status / pair / token / serve / version
 internal/
   config/           ~/.agent-master/config.json (host, port, token)
   store/            SQLite (modernc.org/sqlite): event ledger + projections

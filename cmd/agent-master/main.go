@@ -37,20 +37,34 @@ func run(args []string) error {
 		return nil
 	}
 	switch args[0] {
-	case "serve":
-		return cmdServe(args[1:])
-	case "token":
-		return cmdToken(args[1:])
+	// Background service management.
+	case "start":
+		return service.Install()
+	case "stop":
+		return service.Stop()
+	case "restart":
+		return service.Restart()
+	case "status":
+		return service.Status()
+	case "uninstall":
+		return service.Uninstall()
+	// Connecting a client.
 	case "pair":
 		return cmdPair(args[1:])
-	case "service":
-		return cmdService(args[1:])
+	case "token":
+		return cmdToken(args[1:])
+	// Other.
+	case "serve":
+		return cmdServe(args[1:])
 	case "version", "-v", "--version":
 		fmt.Println(version.Version)
 		return nil
 	case "help", "-h", "--help":
 		usage()
 		return nil
+	// Back-compat alias: `service install|uninstall|status|start|stop|restart`.
+	case "service":
+		return cmdService(args[1:])
 	default:
 		usage()
 		return fmt.Errorf("unknown command: %s", args[0])
@@ -130,15 +144,20 @@ func cmdToken(_ []string) error {
 	return nil
 }
 
+// cmdService keeps the older `service <sub>` form working as an alias.
 func cmdService(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: agent-master service <install|uninstall|status>")
+		return errors.New("usage: agent-master service <install|uninstall|status|start|stop|restart>")
 	}
 	switch args[0] {
-	case "install":
+	case "install", "start":
 		return service.Install()
 	case "uninstall":
 		return service.Uninstall()
+	case "stop":
+		return service.Stop()
+	case "restart":
+		return service.Restart()
 	case "status":
 		return service.Status()
 	default:
@@ -147,15 +166,26 @@ func cmdService(args []string) error {
 }
 
 func usage() {
-	fmt.Print(`agent-master — control Claude Code on this machine, manage it remotely.
+	fmt.Print(`agent-master — run Claude Code on this machine and manage it from anywhere.
 
 Usage:
-  agent-master serve [--port N] [--host H]      Run the daemon in the foreground
-  agent-master service install|uninstall|status  Manage the background service
-  agent-master token                            Print this machine's auth token
-  agent-master pair                             Print connection info + QR to pair a client
-  agent-master version
+  agent-master <command> [flags]
 
-Config & data live under ~/.agent-master/ (default port 8888).
+Service:
+  start        Install and start the background service (auto-starts on boot/login)
+  stop         Stop the background service
+  restart      Restart the background service
+  status       Show whether the service is running
+  uninstall    Remove the background service
+
+Connect a client:
+  pair         Print this machine's URL, token, and a QR to add it in the app
+  token        Print just the auth token
+
+Other:
+  serve        Run in the foreground for dev/debug ([--port N] [--host H])
+  version      Print the version
+
+Config & data live under ~/.agent-master/  (default port 8888).
 `)
 }

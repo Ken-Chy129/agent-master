@@ -56,6 +56,35 @@ func Status() error {
 	}
 }
 
+// Stop stops the running service (leaves it installed on Linux).
+func Stop() error {
+	switch runtime.GOOS {
+	case "linux":
+		return runCmd("systemctl", "--user", "stop", unitName)
+	case "darwin":
+		return runCmd("launchctl", "bootout", "gui/"+uid()+"/"+macLabel)
+	default:
+		return fmt.Errorf("service stop not supported on %s", runtime.GOOS)
+	}
+}
+
+// Restart restarts the service (it must already be installed via `start`).
+func Restart() error {
+	switch runtime.GOOS {
+	case "linux":
+		return runCmd("systemctl", "--user", "restart", unitName)
+	case "darwin":
+		plistPath, err := launchdPlistPath()
+		if err != nil {
+			return err
+		}
+		_ = runCmd("launchctl", "bootout", "gui/"+uid()+"/"+macLabel)
+		return runCmd("launchctl", "bootstrap", "gui/"+uid(), plistPath)
+	default:
+		return fmt.Errorf("service restart not supported on %s", runtime.GOOS)
+	}
+}
+
 // --- systemd (Linux) ---------------------------------------------------------
 
 func installSystemd(exe string) error {
