@@ -50,7 +50,7 @@ main() {
 
   base="https://github.com/${REPO}/releases/download/v${ver}"
   asset="${BIN}-${target}"
-  tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+  tmp="$(mktemp -d)"; trap 'rm -rf "${tmp:-}"' EXIT
 
   echo "Downloading ${asset} (v${ver})..."
   curl -fsSL "${base}/${asset}" -o "${tmp}/${BIN}" || die "download failed"
