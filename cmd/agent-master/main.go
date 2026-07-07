@@ -41,11 +41,11 @@ func run(args []string) error {
 	case "start":
 		return cmdStart(args[1:])
 	case "stop":
-		return service.Stop()
+		return cmdStop(args[1:])
 	case "restart":
-		return service.Restart()
+		return cmdRestart(args[1:])
 	case "status":
-		return service.Status()
+		return cmdStatus(args[1:])
 	case "uninstall":
 		return service.Uninstall()
 	// Connecting a client.
@@ -157,6 +157,22 @@ func cmdStart(_ []string) error {
 	return nil
 }
 
+func cmdStop(_ []string) error {
+	if err := service.Stop(); err != nil {
+		return err
+	}
+	fmt.Println("✓ agent-master stopped.")
+	return nil
+}
+
+func cmdRestart(_ []string) error {
+	if err := service.Restart(); err != nil {
+		return err
+	}
+	fmt.Println("✓ agent-master restarted.")
+	return nil
+}
+
 func cmdToken(_ []string) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -177,11 +193,11 @@ func cmdService(args []string) error {
 	case "uninstall":
 		return service.Uninstall()
 	case "stop":
-		return service.Stop()
+		return cmdStop(nil)
 	case "restart":
-		return service.Restart()
+		return cmdRestart(nil)
 	case "status":
-		return service.Status()
+		return cmdStatus(nil)
 	default:
 		return fmt.Errorf("unknown service subcommand: %s", args[0])
 	}

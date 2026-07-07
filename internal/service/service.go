@@ -45,25 +45,40 @@ func Uninstall() error {
 	}
 }
 
-// Status prints the current service status.
-func Status() error {
+// Installed reports whether the service definition exists on disk. Used to tell
+// "installed but not responding" apart from "never started".
+func Installed() bool {
+	var path string
+	var err error
 	switch runtime.GOOS {
 	case "linux":
-		return runCmd("systemctl", "--user", "status", unitName, "--no-pager")
+		path, err = systemdUnitPath()
 	case "darwin":
-		return runCmd("launchctl", "print", "gui/"+uid()+"/"+macLabel)
+		path, err = launchdPlistPath()
 	default:
-		return fmt.Errorf("service status not supported on %s", runtime.GOOS)
+		return false
 	}
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	return err == nil
 }
 
-// Stop stops the running service (leaves it installed on Linux).
+// Stop stops the running service (leaves it installed on Linux). Stopping an
+// already-stopped service is treated as success, not an error.
 func Stop() error {
 	switch runtime.GOOS {
 	case "linux":
-		return runCmd("systemctl", "--user", "stop", unitName)
+		return runQuiet("systemctl", "--user", "stop", unitName)
 	case "darwin":
-		return runCmd("launchctl", "bootout", "gui/"+uid()+"/"+macLabel)
+		if err := runQuiet("launchctl", "bootout", "gui/"+uid()+"/"+macLabel); err != nil {
+			if strings.Contains(err.Error(), "No such process") {
+				return nil // already stopped
+			}
+			return err
+		}
+		return nil
 	default:
 		return fmt.Errorf("service stop not supported on %s", runtime.GOOS)
 	}
@@ -73,14 +88,14 @@ func Stop() error {
 func Restart() error {
 	switch runtime.GOOS {
 	case "linux":
-		return runCmd("systemctl", "--user", "restart", unitName)
+		return runQuiet("systemctl", "--user", "restart", unitName)
 	case "darwin":
 		plistPath, err := launchdPlistPath()
 		if err != nil {
 			return err
 		}
-		_ = runCmd("launchctl", "bootout", "gui/"+uid()+"/"+macLabel)
-		return runCmd("launchctl", "bootstrap", "gui/"+uid(), plistPath)
+		_ = runQuiet("launchctl", "bootout", "gui/"+uid()+"/"+macLabel) // best-effort; may be stopped
+		return runQuiet("launchctl", "bootstrap", "gui/"+uid(), plistPath)
 	default:
 		return fmt.Errorf("service restart not supported on %s", runtime.GOOS)
 	}
@@ -221,13 +236,6 @@ func executablePath() (string, error) {
 }
 
 func uid() string { return fmt.Sprintf("%d", os.Getuid()) }
-
-func runCmd(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
 
 // runQuiet runs a command discarding its output on success; on failure it folds
 // any output into the error. Used for install/uninstall so best-effort steps
