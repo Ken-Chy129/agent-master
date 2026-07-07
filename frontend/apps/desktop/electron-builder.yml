@@ -34,6 +34,14 @@ files:
 extraMetadata:
   main: dist-electron/main.js
 
+# The app is a self-contained esbuild bundle (dist-electron) + the web build; it
+# has no production or native dependencies. Skip electron-builder's "install
+# production dependencies / rebuild" step — in this npm-workspaces monorepo it
+# prunes the hoisted root node_modules to production-only, deleting dev deps
+# (including the 7zip-bin that electron-builder itself then needs), which failed
+# packaging with: ENOENT chmod node_modules/7zip-bin/<platform>/7za.
+npmRebuild: false
+
 mac:
   category: public.app-category.developer-tools
   # No Apple Developer cert in CI, so this is an unsigned build. electron-builder
