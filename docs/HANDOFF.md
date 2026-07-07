@@ -178,7 +178,7 @@ cd android
 
 ## 8. 部署与网络
 
-- **推荐**：每台机器 `curl install.sh | bash`（待发 Release）或 `make build` 后 `agent-master service install`；把机器 + 你的设备加进同一 **Tailscale tailnet**，客户端用 tailnet 地址（`http://100.x.x.x:8888`）添加机器。Tailscale 对 daemon 透明，零代码、零公网暴露。
+- **推荐**：每台机器 `curl install.sh | bash`（装到 `~/.local/bin`，免 sudo；Release 已发 v0.1.0）或 `make build` 后 `agent-master service install`；把机器 + 你的设备加进同一 **Tailscale tailnet**，客户端用 tailnet 地址（`http://100.x.x.x:8888`）添加机器。Tailscale 对 daemon 透明，零代码、零公网暴露。
 - **鉴权**：单 Bearer token（`crypto/subtle` 常量时间比较），首启自动生成存 `~/.agent-master/config.json`（0600）。Docker 端口映射下不启用「同机免密」，统一用 token。
 - **Docker（可选）**：镜像内需装 `claude` 并挂 `~/.claude` 凭据 + 挂工作目录 + 挂 SQLite 卷（详见 DESIGN.md §9）。原生二进制部署更省事（直接用本机 claude 登录）。
 

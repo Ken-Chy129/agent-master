@@ -105,10 +105,14 @@ use the tailnet URL (set it as `public_url`) — no public port exposure.
 
 ## Install (release)
 
+Installs the latest release binary into `~/.local/bin` (no sudo). Override with
+`INSTALL_DIR=` (a system dir like `/usr/local/bin` then uses sudo).
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Ken-Chy129/agent-master/main/install.sh | bash
+# ensure ~/.local/bin is on PATH (the installer prints this if needed)
 agent-master service install   # systemd (Linux) / launchd (macOS)
-agent-master token             # copy into your client
+agent-master pair              # show URL/token/QR to connect a client
 ```
 
 ## Layout

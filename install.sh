@@ -10,7 +10,9 @@ set -euo pipefail
 
 REPO="Ken-Chy129/agent-master"
 BIN="agent-master"
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+# Default to a user-owned dir so no sudo is needed. Override with INSTALL_DIR
+# (e.g. INSTALL_DIR=/usr/local/bin, which then falls back to sudo).
+INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
 die() { echo "Error: $*" >&2; exit 1; }
 
@@ -66,10 +68,13 @@ main() {
   fi
 
   chmod +x "${tmp}/${BIN}"
-  if [ -w "$INSTALL_DIR" ]; then
+  # A user-owned dir (the default) installs without sudo; a system dir falls
+  # back to sudo.
+  if mkdir -p "$INSTALL_DIR" 2>/dev/null && [ -w "$INSTALL_DIR" ]; then
     mv "${tmp}/${BIN}" "${INSTALL_DIR}/${BIN}"
   elif command -v sudo >/dev/null 2>&1; then
     echo "Installing to ${INSTALL_DIR} (requires sudo)..."
+    sudo mkdir -p "$INSTALL_DIR"
     sudo mv "${tmp}/${BIN}" "${INSTALL_DIR}/${BIN}"
   else
     die "${INSTALL_DIR} not writable and sudo unavailable"
@@ -77,9 +82,23 @@ main() {
 
   echo ""
   echo "Installed ${INSTALL_DIR}/${BIN} (v${ver})"
+
+  # Nudge if the install dir isn't on PATH (common for ~/.local/bin on macOS).
+  case ":${PATH}:" in
+    *":${INSTALL_DIR}:"*)
+      run="${BIN}" ;;
+    *)
+      run="${INSTALL_DIR}/${BIN}"
+      echo ""
+      echo "Note: ${INSTALL_DIR} is not on your PATH. Add it, e.g.:"
+      echo "  echo 'export PATH=\"${INSTALL_DIR}:\$PATH\"' >> ~/.zshrc && exec \$SHELL"
+      ;;
+  esac
+
+  echo ""
   echo "Next:"
-  echo "  ${BIN} service install     # run as a background service"
-  echo "  ${BIN} token               # copy this into your client"
+  echo "  ${run} service install     # run as a background service"
+  echo "  ${run} pair                # show URL/token/QR to connect a client"
 }
 
 main "$@"
