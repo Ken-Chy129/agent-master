@@ -20,8 +20,14 @@ import java.util.concurrent.atomic.AtomicReference
 
 /** Callbacks for a per-session SSE subscription. Mirrors SseSubscribeOptions. */
 interface SseSubscribeOptions {
-    /** Called for every parsed `am_event` frame. */
+    /** Called for every parsed `am_event` frame (drives the resume cursor). */
     fun onEvent(event: WireEvent)
+
+    /** Called for every `am_render` snapshot (the transcript to display). */
+    fun onRender(state: RenderState) {}
+
+    /** Called for every live `am_delta` frame (token-level preview; ephemeral). */
+    fun onDelta(delta: StreamDelta) {}
 
     /** Called on transport errors (before an auto-reconnect is scheduled). */
     fun onError(error: Throwable) {}
@@ -76,7 +82,7 @@ fun interface SseSubscription {
  * - exponential backoff min(base * 2^attempt, max), reset on open,
  * - `reconnect` event resets lastSeq to its `afterSeq` and immediately reconnects.
  */
-class SseClient(private val config: SseClientConfig) {
+open class SseClient(private val config: SseClientConfig) {
     private val baseUrl: String = trimTrailingSlash(config.baseUrl)
     private val token: String = config.token
     private val http: OkHttpClient = config.httpClient
@@ -89,7 +95,7 @@ class SseClient(private val config: SseClientConfig) {
      * Subscribe to a session's stream. Returns a handle whose [SseSubscription.unsubscribe]
      * closes the connection and cancels any pending reconnect.
      */
-    fun subscribe(
+    open fun subscribe(
         sessionId: String,
         afterSeq: Long = 0,
         opts: SseSubscribeOptions,
@@ -148,6 +154,18 @@ class SseClient(private val config: SseClientConfig) {
                         val event = parseWireEvent(data) ?: return
                         if (event.seq > lastSeq.get()) lastSeq.set(event.seq)
                         opts.onEvent(event)
+                    }
+                    // Server-derived render snapshot (the transcript to display).
+                    // Does NOT advance the resume cursor.
+                    "am_render" -> {
+                        val rs = parseRender(data) ?: return
+                        opts.onRender(rs)
+                    }
+                    // Live-only token deltas: no seq, do not advance lastSeq /
+                    // resume cursor.
+                    "am_delta" -> {
+                        val delta = parseDelta(data) ?: return
+                        opts.onDelta(delta)
                     }
                     // Server-initiated resync after a dropped-subscriber overflow.
                     "reconnect" -> {
@@ -236,6 +254,20 @@ class SseClient(private val config: SseClientConfig) {
         internal fun parseReconnectSeq(data: String): Long? =
             try {
                 AmJson.decodeFromString(ReconnectPayload.serializer(), data).afterSeq
+            } catch (_: Exception) {
+                null
+            }
+
+        internal fun parseRender(data: String): RenderState? =
+            try {
+                AmJson.decodeFromString(RenderState.serializer(), data)
+            } catch (_: Exception) {
+                null
+            }
+
+        internal fun parseDelta(data: String): StreamDelta? =
+            try {
+                AmJson.decodeFromString(StreamDelta.serializer(), data)
             } catch (_: Exception) {
                 null
             }

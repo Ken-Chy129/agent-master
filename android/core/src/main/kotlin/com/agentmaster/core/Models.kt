@@ -167,6 +167,59 @@ data class RunFinishedPayload(
 @Serializable
 data class ErrorPayload(val message: String = "")
 
+/**
+ * A live-only, token-level assistant text fragment (SSE `am_delta`). Not part of
+ * the committed ledger and not resumable: the committed `assistant_message`
+ * carries the final text. Clients use deltas only for a live typing preview.
+ *
+ * Mirrors StreamDelta in frontend/packages/core/src/types.ts.
+ */
+@Serializable
+data class StreamDelta(
+    val runId: String = "",
+    val text: String = "",
+    val index: Int = 0,
+)
+
+// --- Server-derived render state (SSE `am_render`, GET /api/sessions/:id/render) ---
+
+/**
+ * One display row. `kind` selects which fields are meaningful. Mirrors the Go
+ * `render.RenderRow` (internal/render/render.go) and RenderRow in types.ts.
+ *
+ * `input`/`output` are kept as raw [JsonElement] because a tool's I/O shape is
+ * arbitrary; they are omitted (JSON `null`) when absent, matching the Go
+ * `omitempty` on the wire.
+ */
+@Serializable
+data class RenderRow(
+    val kind: String = "", // user | assistant | tool | error
+    val id: String = "", // stable row id
+    val seq: Long = 0, // originating event seq
+    val text: String? = null, // user / assistant / error
+    val name: String? = null, // tool
+    val input: JsonElement? = null, // tool (arbitrary shape)
+    val output: JsonElement? = null, // tool (present once the result lands)
+    val status: String? = null, // tool: running | done
+)
+
+/**
+ * The server-folded transcript snapshot (SSE `am_render`). Clients dumb-render
+ * `rows` and derive run state from `tailActivity` / `lastRunState` — no local
+ * tool pairing, run-status, or ordering logic.
+ *
+ * Mirrors the Go `render.RenderState` (internal/render/render.go) and
+ * RenderState in frontend/packages/core/src/types.ts. Field names are the wire
+ * names verbatim: `basedOnSeq`, `rows`, `tailActivity`, `lastRunState`.
+ */
+@Serializable
+data class RenderState(
+    val basedOnSeq: Long = 0, // committed tail this snapshot reflects
+    val rows: List<RenderRow> = emptyList(), // ordered display rows
+    val tailActivity: String = "idle", // "idle" | "running"
+    val lastRunState: String? = null, // done | interrupted | failed
+)
+
 // --- Typed payload accessors mirroring EventPayloadMap in the TS core. ---
 
 fun WireEvent.asUserMessage(): UserMessagePayload? =

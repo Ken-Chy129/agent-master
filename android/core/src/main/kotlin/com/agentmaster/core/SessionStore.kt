@@ -22,16 +22,25 @@ data class StoreState(
     val sessions: List<RecentSession> = emptyList(),
     val sessionsLoading: Boolean = false,
     val currentSessionId: String? = null,
-    val eventsBySession: Map<String, List<WireEvent>> = emptyMap(),
-    val historyLoading: Boolean = false,
+    /** Server-derived transcript per session (we dumb-render this). */
+    val renderBySession: Map<String, RenderState> = emptyMap(),
     val streamStatus: StreamStatus = StreamStatus.IDLE,
     val runActive: Boolean = false,
+    /** Live token-preview text for the current run; cleared when a committed snapshot lands. */
+    val streamingText: String = "",
     val error: String? = null,
 ) {
-    /** Events for the currently-open session, ascending by seq. */
-    val currentEvents: List<WireEvent>
-        get() = currentSessionId?.let { eventsBySession[it] } ?: emptyList()
+    /** Server-derived render snapshot for the currently-open session. */
+    val currentRender: RenderState
+        get() = currentSessionId?.let { renderBySession[it] } ?: EMPTY_RENDER
+
+    /** Render rows for the currently-open session (dumb-rendered by the UI). */
+    val currentRows: List<RenderRow>
+        get() = currentRender.rows
 }
+
+/** An empty render snapshot for sessions we haven't received a frame for yet. */
+val EMPTY_RENDER: RenderState = RenderState(basedOnSeq = 0, rows = emptyList(), tailActivity = "idle")
 
 /** Input for [SessionStore.addMachine]; mirrors AddMachineInput. */
 data class AddMachineInput(
@@ -62,12 +71,15 @@ interface ClientFactory {
  * in frontend/apps/web/src/store.ts:
  *
  * - machine list + active machine, persisted through [MachineStore];
- * - openSession loads history then SSE-subscribes from lastSeq;
- * - events deduped/sorted by seq (upsertEvent);
- * - runActive derived from the ledger (last run event wins).
+ * - openSession just SSE-subscribes from seq 0; the stream's initial `am_render`
+ *   snapshot supplies the rows (no separate history fetch);
+ * - `renderBySession` holds the server-folded transcript snapshot per session;
+ * - `runActive` comes straight from `tailActivity == "running"`;
+ * - `streamingText` accumulates live `am_delta` fragments and is cleared whenever
+ *   a committed render snapshot arrives.
  *
  * All UI (the Android ViewModel) is a dumb observer of [state]; it must not
- * recompute grouping or run state.
+ * recompute grouping, tool pairing, or run state.
  */
 class SessionStore(
     private val scope: CoroutineScope,
@@ -176,9 +188,10 @@ class SessionStore(
                         activeMachineId = null,
                         sessions = emptyList(),
                         currentSessionId = null,
-                        eventsBySession = emptyMap(),
+                        renderBySession = emptyMap(),
                         streamStatus = StreamStatus.IDLE,
                         runActive = false,
+                        streamingText = "",
                     )
                 }
             }
@@ -194,9 +207,10 @@ class SessionStore(
                 activeMachineId = id,
                 sessions = emptyList(),
                 currentSessionId = null,
-                eventsBySession = emptyMap(),
+                renderBySession = emptyMap(),
                 streamStatus = StreamStatus.IDLE,
                 runActive = false,
+                streamingText = "",
                 error = null,
             )
         }
@@ -228,54 +242,49 @@ class SessionStore(
     }
 
     /**
-     * Open a session: load the latest history page, then SSE-subscribe from the
-     * last seq. Live events are deduped/sorted into the session's list and
-     * runActive is recomputed from the ledger. Direct port of store.openSession.
+     * Open a session: SSE-subscribe from seq 0. The stream's initial `am_render`
+     * snapshot provides the rows — no separate history fetch. `am_event` only
+     * advances the SseClient resume cursor; `am_render` sets the render snapshot
+     * + `runActive` and clears any in-flight `streamingText`; `am_delta` appends
+     * live token preview. Direct port of store.openSession.
      */
     suspend fun openSession(id: String) {
-        val client = api ?: return
         val stream = sse ?: return
 
         stopStream()
         update {
             it.copy(
                 currentSessionId = id,
-                historyLoading = true,
                 streamStatus = StreamStatus.CONNECTING,
+                streamingText = "",
                 error = null,
             )
         }
 
-        val history: List<WireEvent> = try {
-            client.getMessages(id, limit = 200).events
-        } catch (err: Throwable) {
-            update { it.copy(historyLoading = false, streamStatus = StreamStatus.ERROR, error = errText(err)) }
-            return
-        }
-
-        update {
-            it.copy(
-                historyLoading = false,
-                eventsBySession = it.eventsBySession + (id to history),
-                runActive = computeRunActive(history),
-            )
-        }
-
-        val lastSeq = if (history.isNotEmpty()) history.last().seq else 0L
         activeSubscription = stream.subscribe(
             id,
-            afterSeq = lastSeq,
+            afterSeq = 0,
             opts = object : SseSubscribeOptions {
-                override fun onEvent(event: WireEvent) {
+                // `am_event` only advances the SseClient resume cursor; the
+                // render snapshot is the transcript source.
+                override fun onEvent(event: WireEvent) {}
+
+                override fun onRender(state: RenderState) {
                     if (_state.value.currentSessionId != id) return
                     update { s ->
-                        val list = upsertEvent(s.eventsBySession[id] ?: emptyList(), event)
                         s.copy(
-                            eventsBySession = s.eventsBySession + (id to list),
-                            runActive = computeRunActive(list),
+                            renderBySession = s.renderBySession + (id to state),
+                            runActive = state.tailActivity == "running",
                             streamStatus = StreamStatus.OPEN,
+                            // A committed snapshot supersedes any in-flight token preview.
+                            streamingText = "",
                         )
                     }
+                }
+
+                override fun onDelta(delta: StreamDelta) {
+                    if (_state.value.currentSessionId != id) return
+                    update { it.copy(streamingText = it.streamingText + delta.text) }
                 }
 
                 override fun onError(error: Throwable) {
@@ -300,6 +309,7 @@ class SessionStore(
                 currentSessionId = null,
                 streamStatus = StreamStatus.IDLE,
                 runActive = false,
+                streamingText = "",
             )
         }
     }
@@ -342,29 +352,6 @@ class SessionStore(
     fun launchAddMachineFromPair(pair: PairPayload) { scope.launch { addMachineFromPair(pair) } }
 
     companion object {
-        /** Insert/replace an event by seq and keep the list sorted ascending. */
-        fun upsertEvent(list: List<WireEvent>, event: WireEvent): List<WireEvent> {
-            val idx = list.indexOfFirst { it.seq == event.seq }
-            if (idx >= 0) {
-                val next = list.toMutableList()
-                next[idx] = event
-                return next
-            }
-            return (list + event).sortedBy { it.seq }
-        }
-
-        /** Derive whether a run is active from the event list (last run event wins). */
-        fun computeRunActive(events: List<WireEvent>): Boolean {
-            for (i in events.indices.reversed()) {
-                when (events[i].type) {
-                    EventType.RUN_FINISHED -> return false
-                    EventType.RUN_STARTED -> return true
-                    else -> {}
-                }
-            }
-            return false
-        }
-
         /** Human-readable error text, matching store.ts errText. */
         fun errText(err: Throwable): String = when (err) {
             is ApiError -> "${err.message} (HTTP ${err.status})"

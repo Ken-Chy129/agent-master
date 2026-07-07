@@ -40,22 +40,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.agentmaster.core.EventType
+import com.agentmaster.core.RenderRow
 import com.agentmaster.core.StoreState
 import com.agentmaster.core.StreamStatus
-import com.agentmaster.core.WireEvent
-import com.agentmaster.core.asAssistantMessage
-import com.agentmaster.core.asError
-import com.agentmaster.core.asRunFinished
-import com.agentmaster.core.asToolCall
-import com.agentmaster.core.asToolResult
-import com.agentmaster.core.asUserMessage
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * Conversation view. DUMB renderer: it walks [StoreState.currentEvents] (already
- * deduped and sorted by seq in :core) and renders each WireEvent as a row. It
- * does NOT group, pair tool calls/results, or recompute run state — `runActive`
- * comes from the store's ledger reducer.
+ * Conversation view. DUMB renderer: it walks the server-derived
+ * [StoreState.currentRows] (the `am_render` snapshot folded server-side — tool
+ * calls already paired with their results, run status already resolved) and
+ * renders each [RenderRow] by `kind`. It does NOT group, pair tool
+ * calls/results, or recompute run state — `runActive` comes from the snapshot's
+ * `tailActivity`. A live `streamingText` preview (accumulated `am_delta`
+ * fragments) is appended below the committed rows and disappears when the next
+ * snapshot lands. Mirrors frontend/apps/web/src/components/Conversation.tsx.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,12 +65,14 @@ fun ConversationScreen(
     onSendMessage: (String) -> Unit,
     onInterrupt: () -> Unit,
 ) {
-    val events = state.currentEvents
+    val rows = state.currentRows
+    val streamingText = state.streamingText
     val listState = rememberLazyListState()
 
-    // Auto-scroll to the newest event as the ledger grows.
-    LaunchedEffect(events.size) {
-        if (events.isNotEmpty()) listState.animateScrollToItem(events.size - 1)
+    // Auto-scroll to the newest row and as the live preview grows.
+    val itemCount = rows.size + if (streamingText.isNotEmpty()) 1 else 0
+    LaunchedEffect(itemCount, streamingText) {
+        if (itemCount > 0) listState.animateScrollToItem(itemCount - 1)
     }
 
     Scaffold(
@@ -100,7 +102,8 @@ fun ConversationScreen(
                 .padding(padding)
                 .imePadding(),
         ) {
-            if (state.historyLoading) {
+            // Connecting only reads as loading before the first snapshot arrives.
+            if (state.streamStatus == StreamStatus.CONNECTING && rows.isEmpty()) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
@@ -112,8 +115,14 @@ fun ConversationScreen(
                     .padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                items(events, key = { it.seq }) { event ->
-                    EventRow(event)
+                items(rows, key = { it.id }) { row ->
+                    RenderRowView(row)
+                }
+                // Live token preview: ephemeral, replaced when the next snapshot lands.
+                if (streamingText.isNotEmpty()) {
+                    item(key = "__streaming__") {
+                        Bubble(role = "Assistant", text = "$streamingText▌", fromUser = false)
+                    }
                 }
             }
 
@@ -136,42 +145,40 @@ private fun streamLabel(state: StoreState): String {
     return if (state.runActive) "$status · running" else status
 }
 
-/** Render one ledger event by its type. One row per event; no grouping. */
+/**
+ * Dumb-renders one server-derived row by `kind`. Tool pairing/status is already
+ * done server-side; we only display. Mirrors the web `Row` component.
+ */
 @Composable
-private fun EventRow(event: WireEvent) {
-    when (event.type) {
-        EventType.USER_MESSAGE ->
-            Bubble(role = "You", text = event.asUserMessage()?.text.orEmpty(), fromUser = true)
+private fun RenderRowView(row: RenderRow) {
+    when (row.kind) {
+        "user" -> Bubble(role = "You", text = row.text.orEmpty(), fromUser = true)
 
-        EventType.ASSISTANT_MESSAGE ->
-            Bubble(role = "Assistant", text = event.asAssistantMessage()?.text.orEmpty(), fromUser = false)
+        "assistant" -> Bubble(role = "Assistant", text = row.text.orEmpty(), fromUser = false)
 
-        EventType.TOOL_CALL -> {
-            val c = event.asToolCall()
-            MetaRow("→ tool ${c?.name.orEmpty()} (${c?.id.orEmpty()})", mono = true)
+        "tool" -> {
+            val header = buildString {
+                append("→ tool ").append(row.name.orEmpty())
+                append(if (row.status == "done") " · done" else " · running…")
+            }
+            MetaRow(header, mono = true)
+            val input = formatValue(row.input)
+            if (input.isNotEmpty()) MetaRow(input, mono = true)
+            val output = formatValue(row.output)
+            if (output.isNotEmpty()) MetaRow("→ $output", mono = true)
         }
 
-        EventType.TOOL_RESULT -> {
-            val r = event.asToolResult()
-            MetaRow("← result (${r?.id.orEmpty()})", mono = true)
-        }
+        "error" -> Bubble(role = "Error", text = row.text.orEmpty(), fromUser = false, error = true)
 
-        EventType.RUN_STARTED -> MetaRow("run started", mono = false)
-
-        EventType.RUN_FINISHED -> {
-            val f = event.asRunFinished()
-            MetaRow("run finished: ${f?.state?.wire.orEmpty()}", mono = false)
-        }
-
-        EventType.ERROR -> Bubble(
-            role = "Error",
-            text = event.asError()?.message.orEmpty(),
-            fromUser = false,
-            error = true,
-        )
-
-        EventType.UNKNOWN -> MetaRow("(unsupported event: ${event.type})", mono = false)
+        else -> MetaRow("(unsupported row: ${row.kind})", mono = false)
     }
+}
+
+/** Renders arbitrary tool input/output JSON for display; "" when absent. */
+private fun formatValue(v: JsonElement?): String = when {
+    v == null || v is JsonNull -> ""
+    v is JsonPrimitive && v.isString -> v.content
+    else -> v.toString()
 }
 
 @Composable

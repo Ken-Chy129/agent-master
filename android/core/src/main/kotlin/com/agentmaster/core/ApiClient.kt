@@ -53,7 +53,7 @@ private fun trimTrailingSlash(s: String): String =
  * Mirrors ApiClient in frontend/packages/core/src/api.ts: same endpoints,
  * same auth, same error extraction, same empty-body handling.
  */
-class ApiClient(config: ApiClientConfig) {
+open class ApiClient(config: ApiClientConfig) {
     val baseUrl: String = trimTrailingSlash(config.baseUrl)
     private val token: String = config.token
     private val http: OkHttpClient = config.httpClient
@@ -70,7 +70,7 @@ class ApiClient(config: ApiClientConfig) {
         request("GET", "/api/info", InfoResponse.serializer())
 
     /** GET /api/sessions?limit=&offset= */
-    suspend fun listSessions(limit: Int? = null, offset: Int? = null): ListSessionsResponse {
+    open suspend fun listSessions(limit: Int? = null, offset: Int? = null): ListSessionsResponse {
         val path = buildString {
             append("/api/sessions")
             val q = mutableListOf<String>()

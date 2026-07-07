@@ -21,8 +21,10 @@ import kotlinx.coroutines.launch
  *   - forwards UI actions and deep links to the store.
  *
  * It deliberately does NOT recompute transcript grouping or run state — the UI
- * dumb-renders `state.currentEvents`, and `state.runActive` comes from the
- * ledger reducer in the store.
+ * dumb-renders the server `render_state` snapshot (`state.currentRows` +
+ * `state.streamingText`), and `state.runActive` comes from the snapshot's
+ * `tailActivity` in the store. `onRender`/`onDelta` are wired to the store's SSE
+ * subscription inside `openSession`; the ViewModel only forwards UI actions.
  */
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 

@@ -115,6 +115,97 @@ class WireEventTest {
         assertNull(noRun.activeRunId)
     }
 
+    // --- RenderState / RenderRow / StreamDelta (SSE am_render / am_delta) ---
+
+    @Test
+    fun renderState_deserializes_allRowKinds() {
+        // Mirrors the Go render.RenderState wire shape (internal/render/render.go):
+        // a merged tool row (input + output + status=done), plus user / assistant /
+        // error rows, tailActivity and lastRunState.
+        val json =
+            """{"basedOnSeq":7,"tailActivity":"idle","lastRunState":"done","rows":[""" +
+                """{"kind":"user","id":"u1","seq":1,"text":"hello"},""" +
+                """{"kind":"assistant","id":"a2","seq":2,"text":"hi there"},""" +
+                """{"kind":"tool","id":"tc_1","seq":3,"name":"Read","input":{"file":"/x"},"output":{"ok":true},"status":"done"},""" +
+                """{"kind":"error","id":"e4","seq":4,"text":"boom"}""" +
+                """]}"""
+        val rs = AmJson.decodeFromString(RenderState.serializer(), json)
+
+        assertEquals(7L, rs.basedOnSeq)
+        assertEquals("idle", rs.tailActivity)
+        assertEquals("done", rs.lastRunState)
+        assertEquals(4, rs.rows.size)
+
+        val user = rs.rows[0]
+        assertEquals("user", user.kind)
+        assertEquals("u1", user.id)
+        assertEquals(1L, user.seq)
+        assertEquals("hello", user.text)
+
+        val tool = rs.rows[2]
+        assertEquals("tool", tool.kind)
+        assertEquals("Read", tool.name)
+        assertEquals("done", tool.status)
+        assertEquals("/x", tool.input?.jsonObject?.get("file")?.jsonPrimitive?.content)
+        assertTrue(tool.output?.jsonObject?.get("ok")?.jsonPrimitive?.content == "true")
+
+        assertEquals("error", rs.rows[3].kind)
+        assertEquals("boom", rs.rows[3].text)
+    }
+
+    @Test
+    fun renderState_runningTail_omitsLastRunState() {
+        // A running tail with a still-in-flight tool row (status=running, no output).
+        val json =
+            """{"basedOnSeq":3,"tailActivity":"running","rows":[""" +
+                """{"kind":"tool","id":"tc_9","seq":3,"name":"Bash","input":{"cmd":"ls"},"status":"running"}""" +
+                """]}"""
+        val rs = AmJson.decodeFromString(RenderState.serializer(), json)
+        assertEquals("running", rs.tailActivity)
+        assertNull(rs.lastRunState) // omitempty on the wire -> null in Kotlin
+        val tool = rs.rows.single()
+        assertEquals("running", tool.status)
+        assertNull(tool.output) // result hasn't landed yet
+    }
+
+    @Test
+    fun renderState_roundTrips() {
+        val original = RenderState(
+            basedOnSeq = 5,
+            tailActivity = "running",
+            lastRunState = null,
+            rows = listOf(
+                RenderRow(kind = "user", id = "u1", seq = 1, text = "hi"),
+                RenderRow(kind = "assistant", id = "a2", seq = 2, text = "hello"),
+            ),
+        )
+        val encoded = AmJson.encodeToString(RenderState.serializer(), original)
+        val decoded = AmJson.decodeFromString(RenderState.serializer(), encoded)
+        assertEquals(original, decoded)
+    }
+
+    @Test
+    fun renderState_emptyRows_default() {
+        // Server may send an empty snapshot for a fresh session.
+        val rs = AmJson.decodeFromString(
+            RenderState.serializer(),
+            """{"basedOnSeq":0,"tailActivity":"idle","rows":[]}""",
+        )
+        assertEquals(0, rs.rows.size)
+        assertEquals("idle", rs.tailActivity)
+    }
+
+    @Test
+    fun streamDelta_deserializes() {
+        val d = AmJson.decodeFromString(
+            StreamDelta.serializer(),
+            """{"runId":"r_1","text":"partial","index":2}""",
+        )
+        assertEquals("r_1", d.runId)
+        assertEquals("partial", d.text)
+        assertEquals(2, d.index)
+    }
+
     @Test
     fun createSessionRequest_omitsNulls() {
         val body = AmJson.encodeToString(
