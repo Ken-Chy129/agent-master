@@ -68,6 +68,7 @@ type EventType =
 | POST | `/api/sessions/{id}/send` | `{ message, clientIntentId? }` | `202 { runId }` (409 if a run is active) |
 | POST | `/api/sessions/{id}/interrupt` | — | `{ ok: true }` |
 | GET | `/api/sessions/{id}/stream?after_seq=&token=` | — | SSE (below) |
+| GET | `/api/sessions/{id}/render` | — | `RenderState` (server-derived transcript snapshot) |
 
 Notes:
 - `messages` returns events **ascending by seq**; `hasMore` = older events
@@ -94,6 +95,39 @@ Notes:
 - Keep-alive: a `: ping` comment line every 30s.
 - On a dropped-subscriber overflow the server sends `event: reconnect` with
   `data: {"afterSeq": <n>}`; the client should reconnect using that seq.
+
+### Render snapshots (`am_render`)
+
+The server folds the committed ledger into a ready-to-display snapshot and sends
+it on connect and after every committed event — clients dumb-render it instead
+of deriving transcript structure themselves.
+
+```
+event: am_render
+data: {"basedOnSeq":7,"tailActivity":"idle","lastRunState":"done","rows":[...]}
+```
+
+```ts
+type RenderRow = {
+  kind: "user" | "assistant" | "tool" | "error"
+  id: string; seq: number
+  text?: string                 // user / assistant / error
+  name?: string; input?: unknown; output?: unknown; status?: "running"|"done"  // tool
+}
+type RenderState = {
+  basedOnSeq: number
+  rows: RenderRow[]
+  tailActivity: "idle" | "running"
+  lastRunState?: "done" | "interrupted" | "failed"
+}
+```
+
+- `tool_call` + its `tool_result` are already merged into one row (status/output
+  set); `run_started`/`run_finished` are folded into `tailActivity`/`lastRunState`,
+  not rows.
+- The live `am_delta` preview (below) is NOT part of render_state; append it
+  after `rows` for a typing preview, and drop it when the next snapshot arrives.
+- `GET /api/sessions/:id/render` returns the same shape as a one-shot.
 
 ### Live deltas (`am_delta`)
 
