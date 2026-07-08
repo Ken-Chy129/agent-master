@@ -223,7 +223,7 @@ function ToolGroup({ rows }: { rows: RenderRow[] }) {
   }, [rows]);
 
   return (
-    <div className="self-stretch">
+    <div className="w-full max-w-[95%] self-start">
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1 text-left text-xs text-ink-muted transition-colors hover:bg-raised"
