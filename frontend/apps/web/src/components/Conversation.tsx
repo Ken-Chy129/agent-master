@@ -42,6 +42,25 @@ export function Conversation() {
 
   const items = useMemo(() => groupRows(render.rows), [render.rows]);
 
+  // The copy+time footer belongs to the END of each exchange: the last
+  // assistant message before the next user message. The feed's trailing
+  // assistant message only counts once the run has settled.
+  const turnEnds = useMemo(() => {
+    const ends = new Set<string>();
+    let lastAssistant: string | null = null;
+    for (const it of items) {
+      if (it.kind !== 'row') continue;
+      if (it.row.kind === 'user') {
+        if (lastAssistant) ends.add(lastAssistant);
+        lastAssistant = null;
+      } else if (it.row.kind === 'assistant') {
+        lastAssistant = it.row.id;
+      }
+    }
+    if (lastAssistant && !runActive) ends.add(lastAssistant);
+    return ends;
+  }, [items, runActive]);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
@@ -82,7 +101,6 @@ export function Conversation() {
           </div>
         </div>
         <div className="ml-auto flex flex-none items-center gap-2">
-          <StatusPill runActive={runActive} lastRunState={render.lastRunState} />
           <StreamIndicator status={streamStatus} />
         </div>
       </header>
@@ -102,7 +120,7 @@ export function Conversation() {
             item.kind === 'tools' ? (
               <ToolGroup key={item.id} rows={item.rows} />
             ) : (
-              <Row key={item.row.id} row={item.row} />
+              <Row key={item.row.id} row={item.row} turnEnd={turnEnds.has(item.row.id)} />
             ),
           )}
           {streamingText && (
@@ -117,33 +135,6 @@ export function Conversation() {
   );
 }
 
-function StatusPill({
-  runActive,
-  lastRunState,
-}: {
-  runActive: boolean;
-  lastRunState?: string;
-}) {
-  if (runActive) {
-    return (
-      <span className="flex items-center gap-1.5 rounded-full bg-accent-soft px-2.5 py-0.5 text-[11px] text-accent">
-        <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-accent" />
-        运行中
-      </span>
-    );
-  }
-  // Success needs no badge — a finished transcript speaks for itself.
-  if (lastRunState === 'failed' || lastRunState === 'interrupted') {
-    return (
-      <span className="flex items-center gap-1.5 rounded-full bg-danger-soft px-2.5 py-0.5 text-[11px] text-danger">
-        <span className="h-1.5 w-1.5 rounded-full bg-danger" />
-        {lastRunState === 'failed' ? '运行失败' : '已中断'}
-      </span>
-    );
-  }
-  return null;
-}
-
 /** Shows the SSE connection state only when it's not cleanly open. */
 function StreamIndicator({ status }: { status: string }) {
   if (status !== 'connecting' && status !== 'error') return null;
@@ -155,19 +146,12 @@ function StreamIndicator({ status }: { status: string }) {
   );
 }
 
-function Row({ row }: { row: RenderRow }) {
+function Row({ row, turnEnd }: { row: RenderRow; turnEnd: boolean }) {
   switch (row.kind) {
     case 'user':
-      return (
-        <div
-          className="max-w-[75%] self-end rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-base leading-[1.7] whitespace-pre-wrap"
-          title={row.createdAt ? hhmm(row.createdAt) : undefined}
-        >
-          {row.text}
-        </div>
-      );
+      return <UserRow text={row.text ?? ''} createdAt={row.createdAt} />;
     case 'assistant':
-      return <AssistantRow text={row.text ?? ''} createdAt={row.createdAt} />;
+      return <AssistantRow text={row.text ?? ''} createdAt={row.createdAt} turnEnd={turnEnd} />;
     case 'error':
       return (
         <div className="self-center rounded-lg border border-danger/50 bg-danger-soft px-3 py-1.5 text-xs text-danger">
@@ -179,30 +163,63 @@ function Row({ row }: { row: RenderRow }) {
   }
 }
 
-function AssistantRow({ text, createdAt }: { text: string; createdAt?: string }) {
+/** Small copy button used in message meta rows. */
+function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="group relative max-w-[95%] self-start">
-      <Markdown text={text} />
-      {/* whitespace-nowrap + flex-none keep the bar intact even when the
-          message itself is only a couple of characters wide. */}
-      <div className="absolute -bottom-[22px] left-0 flex items-center gap-2 whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100">
-        <button
-          onClick={() => {
-            void copyText(text).then((ok) => {
-              if (ok) {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              }
-            });
-          }}
-          className="flex flex-none items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-faint hover:bg-raised hover:text-ink"
-        >
-          {copied ? <IconCheck size={12} className="text-success" /> : <IconCopy size={12} />}
-          {copied ? '已复制' : '复制'}
-        </button>
-        {createdAt && <span className="flex-none text-[11px] text-ink-faint">{hhmm(createdAt)}</span>}
+    <button
+      onClick={() => {
+        void copyText(text).then((ok) => {
+          if (ok) {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }
+        });
+      }}
+      className="flex flex-none items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-faint hover:bg-raised hover:text-ink"
+    >
+      {copied ? <IconCheck size={12} className="text-success" /> : <IconCopy size={12} />}
+      {copied ? '已复制' : '复制'}
+    </button>
+  );
+}
+
+function UserRow({ text, createdAt }: { text: string; createdAt?: string }) {
+  return (
+    <div className="group flex max-w-[75%] flex-col items-end self-end">
+      <div className="rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-base leading-[1.7] whitespace-pre-wrap">
+        {text}
       </div>
+      {/* In-flow so the gap is reserved and the hover reveal never overlaps
+          the next message. */}
+      <div className="mt-0.5 flex h-5 items-center gap-2 whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100">
+        {createdAt && <span className="flex-none text-[11px] text-ink-faint">{hhmm(createdAt)}</span>}
+        <CopyButton text={text} />
+      </div>
+    </div>
+  );
+}
+
+function AssistantRow({
+  text,
+  createdAt,
+  turnEnd,
+}: {
+  text: string;
+  createdAt?: string;
+  turnEnd: boolean;
+}) {
+  return (
+    <div className="max-w-[95%] self-start">
+      <Markdown text={text} />
+      {/* Only the exchange's final message carries the footer, as a quiet
+          always-visible end-of-turn marker. */}
+      {turnEnd && (
+        <div className="mt-1.5 -ml-1.5 flex items-center gap-2 whitespace-nowrap">
+          <CopyButton text={text} />
+          {createdAt && <span className="flex-none text-[11px] text-ink-faint">{hhmm(createdAt)}</span>}
+        </div>
+      )}
     </div>
   );
 }
