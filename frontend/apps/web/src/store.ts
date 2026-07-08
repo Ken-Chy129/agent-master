@@ -33,6 +33,24 @@ function errText(err: unknown): string {
   return String(err);
 }
 
+/**
+ * A random UUID that also works outside secure contexts. `crypto.randomUUID`
+ * is secure-context-only, and the desktop shell serves the UI over a
+ * non-secure app:// origin (kept non-secure so plain-http daemon calls aren't
+ * blocked as mixed content). `crypto.getRandomValues` is always available, so
+ * fall back to a v4 UUID built from it.
+ */
+function randomId(): string {
+  const c = globalThis.crypto;
+  if (typeof c?.randomUUID === 'function') return c.randomUUID();
+  const b = new Uint8Array(16);
+  c.getRandomValues(b);
+  b[6] = (b[6]! & 0x0f) | 0x40; // version 4
+  b[8] = (b[8]! & 0x3f) | 0x80; // variant 10
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0'));
+  return `${h.slice(0, 4).join('')}-${h.slice(4, 6).join('')}-${h.slice(6, 8).join('')}-${h.slice(8, 10).join('')}-${h.slice(10, 16).join('')}`;
+}
+
 export interface AddMachineInput {
   name?: string;
   baseUrl: string;
@@ -143,7 +161,7 @@ export const useStore = create<StoreState>((set, get) => ({
       id = existing.id;
       machines = get().machines.map((m) => (m.id === id ? { ...m, name, token } : m));
     } else {
-      id = crypto.randomUUID();
+      id = randomId();
       machines = [...get().machines, { id, name, baseUrl: cleanUrl, token }];
     }
 
@@ -281,7 +299,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const trimmed = text.trim();
     if (!trimmed) return;
     try {
-      await api.send(currentSessionId, { message: trimmed, clientIntentId: crypto.randomUUID() });
+      await api.send(currentSessionId, { message: trimmed, clientIntentId: randomId() });
     } catch (err) {
       set({ error: errText(err) });
     }

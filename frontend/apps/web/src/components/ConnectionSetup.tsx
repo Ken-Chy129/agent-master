@@ -17,6 +17,7 @@ export function ConnectionSetup({
   const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   const canSubmit = baseUrl.trim().length > 0 && token.trim().length > 0 && !busy;
 
@@ -24,6 +25,7 @@ export function ConnectionSetup({
     e.preventDefault();
     if (!canSubmit) return;
     setBusy(true);
+    setErr(null);
     try {
       await addMachine({
         name: name.trim() || undefined,
@@ -31,6 +33,8 @@ export function ConnectionSetup({
         token: token.trim(),
       });
       onDone?.();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -83,6 +87,8 @@ export function ConnectionSetup({
           spellCheck={false}
         />
       </div>
+
+      {err && <p className="setup-error">{err}</p>}
 
       <div className="setup-actions">
         <button type="submit" className="primary" disabled={!canSubmit}>

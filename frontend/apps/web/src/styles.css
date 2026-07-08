@@ -429,6 +429,11 @@ textarea:focus {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.setup-error {
+  color: #f87171;
+  font-size: 13px;
+  margin: 4px 0 0;
+}
 .setup-actions {
   display: flex;
   gap: 8px;
