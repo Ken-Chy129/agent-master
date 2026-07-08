@@ -69,7 +69,7 @@ export function Overview() {
   return (
     <div className="min-w-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-3xl px-6 py-6">
-        <header className="mb-5 flex items-center gap-3">
+        <header className="app-drag mb-5 flex items-center gap-3">
           <div className="min-w-0">
             <h1 className="text-lg font-semibold">任务总览</h1>
             <p className="mt-0.5 text-xs text-ink-muted">

@@ -139,7 +139,7 @@ function SessionColumn({
 
   return (
     <aside className="flex w-[268px] flex-none flex-col border-r border-border bg-surface">
-      <div className="px-3 pt-3 pb-2">
+      <div className="app-drag px-3 pt-3 pb-2">
         <div className="flex items-center gap-1.5">
           <span className="truncate text-[13px] font-semibold">{machine.name}</span>
           <span

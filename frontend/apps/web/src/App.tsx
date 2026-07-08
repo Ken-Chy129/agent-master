@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from './store.js';
+import { getBridge } from './storage.js';
 import { ConnectionSetup } from './components/ConnectionSetup.js';
 import { MachineView } from './components/MachineView.js';
 import { Overview } from './components/Overview.js';
@@ -19,6 +20,10 @@ export function App() {
   // Load persisted machines on mount (localStorage on web, secure store on desktop).
   useEffect(() => {
     void init();
+    // macOS desktop shell: enable drag regions + traffic-light inset (see styles.css).
+    if (getBridge() && navigator.platform.toUpperCase().includes('MAC')) {
+      document.documentElement.classList.add('desktop-mac');
+    }
   }, [init]);
 
   if (!initialized) {

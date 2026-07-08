@@ -78,7 +78,7 @@ export function Conversation() {
 
   return (
     <>
-      <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2.5">
+      <header className="app-drag flex items-center gap-3 border-b border-border bg-surface px-4 py-2.5">
         {columnCollapsed && (
           <button
             title="展开会话列表"

@@ -228,6 +228,12 @@ function createWindow(): void {
     minWidth: 720,
     minHeight: 480,
     title: 'agent-master',
+    // macOS: drop the title bar entirely; the traffic lights float over the
+    // UI. Drag regions live in the web UI (-webkit-app-region on the rail
+    // and header bars, behind the .desktop-mac root class).
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 10, y: 18 } }
+      : {}),
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,

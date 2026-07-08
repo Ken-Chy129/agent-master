@@ -24,7 +24,7 @@ export function Rail({ onAddMachine }: { onAddMachine: () => void }) {
   const openMachine = useStore((s) => s.openMachine);
 
   return (
-    <nav className="flex w-[58px] flex-none flex-col items-center gap-2 border-r border-border bg-surface py-3">
+    <nav className="am-rail app-drag flex w-[58px] flex-none flex-col items-center gap-2 border-r border-border bg-surface py-3">
       <button
         title="任务总览"
         onClick={openOverview}
