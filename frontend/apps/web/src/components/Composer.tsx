@@ -46,7 +46,7 @@ export function Composer() {
   };
 
   return (
-    <div className="px-5 pb-4">
+    <div className="px-5 pt-1 pb-4">
       <div className="mx-auto max-w-[52rem]">
         <div className="rounded-2xl border border-border bg-surface shadow-sm transition-colors focus-within:border-accent">
           <textarea

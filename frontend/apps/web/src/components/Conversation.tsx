@@ -86,7 +86,7 @@ export function Conversation() {
         </div>
       </header>
 
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-5 pt-6 pb-10 [scrollbar-gutter:stable_both-edges]">
         <div className="mx-auto flex max-w-[52rem] flex-col gap-4">
           {connecting && <div className="py-10 text-center text-sm text-ink-muted">加载中…</div>}
           {!connecting && render.rows.length === 0 && (
@@ -158,7 +158,7 @@ function Row({ row }: { row: RenderRow }) {
   switch (row.kind) {
     case 'user':
       return (
-        <div className="max-w-[75%] self-end rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap">
+        <div className="max-w-[75%] self-end rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-sm leading-[1.7] whitespace-pre-wrap">
           {row.text}
         </div>
       );
@@ -178,9 +178,9 @@ function Row({ row }: { row: RenderRow }) {
 function AssistantRow({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="group max-w-[95%] self-start">
+    <div className="group relative max-w-[95%] self-start">
       <Markdown text={text} />
-      <div className="mt-1 flex h-5 items-center opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="absolute -bottom-[22px] left-0 flex items-center opacity-0 transition-opacity group-hover:opacity-100">
         <button
           title="复制"
           onClick={() => {
