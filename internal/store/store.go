@@ -59,10 +59,21 @@ func (s *Store) migrate() error {
 	// duplicate-column error on re-runs.
 	for _, stmt := range []string{
 		`ALTER TABLE recent_sessions ADD COLUMN last_run_state TEXT`,
+		`ALTER TABLE recent_sessions ADD COLUMN workspace_dir TEXT`,
+		`ALTER TABLE recent_sessions ADD COLUMN created_at TEXT`,
 	} {
 		if _, err := s.DB.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("migrate: %w", err)
 		}
+	}
+	// Backfill projection rows created before the columns existed.
+	if _, err := s.DB.Exec(
+		`UPDATE recent_sessions
+		 SET workspace_dir=(SELECT s.workspace_dir FROM sessions s WHERE s.id=recent_sessions.id),
+		     created_at=(SELECT s.created_at FROM sessions s WHERE s.id=recent_sessions.id)
+		 WHERE workspace_dir IS NULL OR created_at IS NULL`,
+	); err != nil {
+		return fmt.Errorf("migrate backfill: %w", err)
 	}
 	return nil
 }

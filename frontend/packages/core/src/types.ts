@@ -26,6 +26,8 @@ export interface RecentSession {
   lastSeq: number;
   activeRunId?: string; // present while a run is active
   lastRunState?: 'running' | RunState; // state of the most recent run
+  workspaceDir: string;
+  createdAt: string;
   updatedAt: string;
 }
 

@@ -34,6 +34,8 @@ type RecentSession = {
   lastSeq: number
   activeRunId?: string     // present while a run is active
   lastRunState?: string    // "running" | "done" | "interrupted" | "failed"
+  workspaceDir: string
+  createdAt: string
   updatedAt: string
 }
 

@@ -198,3 +198,16 @@ func TestRenameSession(t *testing.T) {
 		t.Fatalf("rename missing = %v, want ErrNotFound", err)
 	}
 }
+
+func TestListRecentCarriesWorkspaceAndCreatedAt(t *testing.T) {
+	st := openTestStore(t)
+	mustSession(t, st, "s1")
+
+	rows, _, err := st.ListRecent(10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].WorkspaceDir != "/tmp" || rows[0].CreatedAt == "" {
+		t.Fatalf("projection = %+v, want workspaceDir=/tmp and non-empty createdAt", rows[0])
+	}
+}

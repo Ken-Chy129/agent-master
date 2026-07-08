@@ -41,6 +41,8 @@ type RecentSession struct {
 	LastSeq      int64  `json:"lastSeq"`
 	ActiveRunID  string `json:"activeRunId,omitempty"`
 	LastRunState string `json:"lastRunState,omitempty"`
+	WorkspaceDir string `json:"workspaceDir"`
+	CreatedAt    string `json:"createdAt"`
 	UpdatedAt    string `json:"updatedAt"`
 }
 
@@ -66,9 +68,9 @@ func (s *Store) CreateSession(sess Session) error {
 	}
 	// Seed the projection row.
 	_, err = s.DB.Exec(
-		`INSERT OR IGNORE INTO recent_sessions (id,title,last_preview,last_seq,active_run_id,updated_at)
-		 VALUES (?,?,'',0,NULL,?)`,
-		sess.ID, sess.Title, sess.UpdatedAt,
+		`INSERT OR IGNORE INTO recent_sessions (id,title,last_preview,last_seq,active_run_id,workspace_dir,created_at,updated_at)
+		 VALUES (?,?,'',0,NULL,?,?,?)`,
+		sess.ID, sess.Title, sess.WorkspaceDir, sess.CreatedAt, sess.UpdatedAt,
 	)
 	return err
 }
@@ -128,7 +130,7 @@ func (s *Store) ListRecent(limit, offset int) ([]RecentSession, bool, error) {
 	}
 	// Fetch one extra to detect hasMore.
 	rows, err := s.DB.Query(
-		`SELECT id,title,last_preview,last_seq,active_run_id,last_run_state,updated_at
+		`SELECT id,title,last_preview,last_seq,active_run_id,last_run_state,workspace_dir,created_at,updated_at
 		 FROM recent_sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?`, limit+1, offset,
 	)
 	if err != nil {
@@ -138,12 +140,13 @@ func (s *Store) ListRecent(limit, offset int) ([]RecentSession, bool, error) {
 	var out []RecentSession
 	for rows.Next() {
 		var r RecentSession
-		var preview, activeRun, runState sql.NullString
+		var preview, activeRun, runState, wsDir, createdAt sql.NullString
 		var lastSeq sql.NullInt64
-		if err := rows.Scan(&r.ID, &r.Title, &preview, &lastSeq, &activeRun, &runState, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Title, &preview, &lastSeq, &activeRun, &runState, &wsDir, &createdAt, &r.UpdatedAt); err != nil {
 			return nil, false, err
 		}
 		r.LastPreview, r.LastSeq, r.ActiveRunID, r.LastRunState = preview.String, lastSeq.Int64, activeRun.String, runState.String
+		r.WorkspaceDir, r.CreatedAt = wsDir.String, createdAt.String
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
