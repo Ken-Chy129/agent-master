@@ -219,9 +219,9 @@ function SessionColumn({
         {groups.map((g) => {
           const isCollapsed = collapsed.has(`${machineId}:${g.key}`);
           return (
-            <div key={g.key} className="mt-1.5">
+            <div key={g.key} className="mt-2 first:mt-1">
               <div
-                className="group/header flex cursor-pointer items-center gap-1 px-2 py-1 select-none"
+                className="group/header flex cursor-pointer items-center gap-1 rounded-md px-3 py-1.5 select-none hover:bg-raised/50"
                 title={g.dir}
                 onClick={() => toggleGroup(g.key)}
               >
@@ -231,8 +231,8 @@ function SessionColumn({
                     isCollapsed ? '' : 'rotate-90'
                   }`}
                 />
-                <span className="truncate text-[11px] font-medium text-ink-muted">{g.label}</span>
-                <span className="flex-none text-[10px] text-ink-faint">{g.sessions.length}</span>
+                <span className="truncate text-[11px] font-semibold text-ink-faint">{g.label}</span>
+                <span className="flex-none text-[10px] text-ink-faint/80">{g.sessions.length}</span>
                 {groupMode === 'project' && g.dir && (
                   <button
                     title={`在 ${g.label} 新建会话`}
@@ -316,7 +316,7 @@ function SessionRow({
 
   return (
     <div
-      className={`group relative mx-1.5 flex cursor-pointer gap-2 rounded-lg px-2 py-1.5 transition-colors ${
+      className={`group relative mx-1.5 flex cursor-pointer gap-2 rounded-lg px-2.5 py-2 transition-colors ${
         active ? 'bg-raised' : 'hover:bg-raised/60'
       }`}
       onClick={onOpen}
@@ -353,19 +353,19 @@ function SessionRow({
             >
               {session.title || '（未命名）'}
             </span>
-            <span className="ml-auto flex-none text-[10px] text-ink-faint group-hover:hidden">
+            <span className="ml-auto flex-none text-[10.5px] text-ink-faint group-hover:hidden">
               {relTime(session.updatedAt)}
             </span>
           </div>
         )}
         {statusLine(session, status) && (
-          <div className="mt-px truncate text-[11px] text-ink-faint">
+          <div className="mt-[3px] truncate text-[11.5px] text-ink-faint">
             {statusLine(session, status)}
           </div>
         )}
       </div>
 
-      <div className="absolute top-1.5 right-1.5">
+      <div className="absolute top-2 right-2">
         <button
           className={`rounded-md p-0.5 text-ink-faint hover:bg-surface hover:text-ink ${
             menu ? '' : 'hidden group-hover:block'
