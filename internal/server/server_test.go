@@ -115,6 +115,36 @@ func TestCreateAndListSession(t *testing.T) {
 	}
 }
 
+func TestRenameSessionEndpoint(t *testing.T) {
+	_, base := newTestServer(t)
+	ws := t.TempDir()
+
+	_, body := do(t, "POST", base+"/api/sessions", testToken,
+		`{"title":"before","workspaceDir":"`+ws+`"}`)
+	var sess store.Session
+	if err := json.Unmarshal([]byte(body), &sess); err != nil {
+		t.Fatalf("decode session: %v (%s)", err, body)
+	}
+
+	resp, body := do(t, "PATCH", base+"/api/sessions/"+sess.ID, testToken, `{"title":"after"}`)
+	if resp.StatusCode != 200 || !strings.Contains(body, `"title":"after"`) {
+		t.Fatalf("rename = %d %s", resp.StatusCode, body)
+	}
+	_, listBody := do(t, "GET", base+"/api/sessions", testToken, "")
+	if !strings.Contains(listBody, `"title":"after"`) {
+		t.Fatalf("list after rename: %s", listBody)
+	}
+
+	resp, _ = do(t, "PATCH", base+"/api/sessions/"+sess.ID, testToken, `{"title":"  "}`)
+	if resp.StatusCode != 400 {
+		t.Fatalf("empty title = %d, want 400", resp.StatusCode)
+	}
+	resp, _ = do(t, "PATCH", base+"/api/sessions/missing", testToken, `{"title":"x"}`)
+	if resp.StatusCode != 404 {
+		t.Fatalf("missing session = %d, want 404", resp.StatusCode)
+	}
+}
+
 func TestCreateSessionRejectsMissingDir(t *testing.T) {
 	_, base := newTestServer(t)
 	resp, _ := do(t, "POST", base+"/api/sessions", testToken,

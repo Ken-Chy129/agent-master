@@ -35,12 +35,15 @@ type Event struct {
 
 // RecentSession mirrors a row in the recent_sessions projection.
 type RecentSession struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	LastPreview string `json:"lastPreview"`
-	LastSeq     int64  `json:"lastSeq"`
-	ActiveRunID string `json:"activeRunId,omitempty"`
-	UpdatedAt   string `json:"updatedAt"`
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	LastPreview  string `json:"lastPreview"`
+	LastSeq      int64  `json:"lastSeq"`
+	ActiveRunID  string `json:"activeRunId,omitempty"`
+	LastRunState string `json:"lastRunState,omitempty"`
+	WorkspaceDir string `json:"workspaceDir"`
+	CreatedAt    string `json:"createdAt"`
+	UpdatedAt    string `json:"updatedAt"`
 }
 
 func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339Nano) }
@@ -65,9 +68,9 @@ func (s *Store) CreateSession(sess Session) error {
 	}
 	// Seed the projection row.
 	_, err = s.DB.Exec(
-		`INSERT OR IGNORE INTO recent_sessions (id,title,last_preview,last_seq,active_run_id,updated_at)
-		 VALUES (?,?,'',0,NULL,?)`,
-		sess.ID, sess.Title, sess.UpdatedAt,
+		`INSERT OR IGNORE INTO recent_sessions (id,title,last_preview,last_seq,active_run_id,workspace_dir,created_at,updated_at)
+		 VALUES (?,?,'',0,NULL,?,?,?)`,
+		sess.ID, sess.Title, sess.WorkspaceDir, sess.CreatedAt, sess.UpdatedAt,
 	)
 	return err
 }
@@ -127,7 +130,7 @@ func (s *Store) ListRecent(limit, offset int) ([]RecentSession, bool, error) {
 	}
 	// Fetch one extra to detect hasMore.
 	rows, err := s.DB.Query(
-		`SELECT id,title,last_preview,last_seq,active_run_id,updated_at
+		`SELECT id,title,last_preview,last_seq,active_run_id,last_run_state,workspace_dir,created_at,updated_at
 		 FROM recent_sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?`, limit+1, offset,
 	)
 	if err != nil {
@@ -137,12 +140,13 @@ func (s *Store) ListRecent(limit, offset int) ([]RecentSession, bool, error) {
 	var out []RecentSession
 	for rows.Next() {
 		var r RecentSession
-		var preview, activeRun sql.NullString
+		var preview, activeRun, runState, wsDir, createdAt sql.NullString
 		var lastSeq sql.NullInt64
-		if err := rows.Scan(&r.ID, &r.Title, &preview, &lastSeq, &activeRun, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Title, &preview, &lastSeq, &activeRun, &runState, &wsDir, &createdAt, &r.UpdatedAt); err != nil {
 			return nil, false, err
 		}
-		r.LastPreview, r.LastSeq, r.ActiveRunID = preview.String, lastSeq.Int64, activeRun.String
+		r.LastPreview, r.LastSeq, r.ActiveRunID, r.LastRunState = preview.String, lastSeq.Int64, activeRun.String, runState.String
+		r.WorkspaceDir, r.CreatedAt = wsDir.String, createdAt.String
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -165,14 +169,35 @@ func (s *Store) BumpRecentSeq(sessionID string, seq int64) error {
 	return err
 }
 
-// UpdateRecentMeta refreshes the projection's display fields without touching
-// last_seq.
-func (s *Store) UpdateRecentMeta(sessionID, title, preview, activeRunID string) error {
+// UpdateRecentMeta refreshes the projection's run-derived display fields
+// without touching last_seq or title (title changes only via create/rename).
+func (s *Store) UpdateRecentMeta(sessionID, preview, activeRunID, lastRunState string) error {
 	_, err := s.DB.Exec(
-		`UPDATE recent_sessions SET title=?, last_preview=?, active_run_id=?, updated_at=? WHERE id=?`,
-		title, preview, nullIfEmpty(activeRunID), nowRFC3339(), sessionID,
+		`UPDATE recent_sessions SET last_preview=?, active_run_id=?, last_run_state=?, updated_at=? WHERE id=?`,
+		preview, nullIfEmpty(activeRunID), nullIfEmpty(lastRunState), nowRFC3339(), sessionID,
 	)
 	return err
+}
+
+// RenameSession updates a session's title in both the sessions table and the
+// recent_sessions projection.
+func (s *Store) RenameSession(id, title string) error {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE sessions SET title=?, updated_at=? WHERE id=?`, title, nowRFC3339(), id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrNotFound
+	}
+	if _, err := tx.Exec(`UPDATE recent_sessions SET title=? WHERE id=?`, title, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // AppendEvent appends one event to a session's ledger, allocating the next seq

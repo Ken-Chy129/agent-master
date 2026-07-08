@@ -5,6 +5,7 @@ import type {
   ListMessagesResponse,
   ListSessionsResponse,
   OkResponse,
+  RenameSessionRequest,
   SendRequest,
   SendResponse,
   Session,
@@ -92,6 +93,13 @@ export class ApiClient {
   /** GET /api/sessions/:id (404 -> ApiError). */
   getSession(id: string): Promise<Session> {
     return this.request<Session>('GET', `/api/sessions/${encodeURIComponent(id)}`);
+  }
+
+  /** PATCH /api/sessions/:id — rename (404 -> ApiError). */
+  renameSession(id: string, title: string): Promise<Session> {
+    return this.request<Session>('PATCH', `/api/sessions/${encodeURIComponent(id)}`, {
+      body: { title } satisfies RenameSessionRequest,
+    });
   }
 
   /** DELETE /api/sessions/:id */

@@ -91,6 +91,14 @@ func (s *Service) DeleteSession(id string) error {
 	return s.store.DeleteSession(id)
 }
 
+// RenameSession updates a session's title and returns the updated session.
+func (s *Service) RenameSession(id, title string) (store.Session, error) {
+	if err := s.store.RenameSession(id, title); err != nil {
+		return store.Session{}, err
+	}
+	return s.store.GetSession(id)
+}
+
 // Messages returns a page of ledger events for history (ascending by seq) and
 // whether older events exist.
 func (s *Service) Messages(sessionID string, beforeSeq int64, limit int) ([]store.Event, bool, error) {
@@ -148,7 +156,7 @@ func (s *Service) Send(sessionID, message, clientIntentID string) (string, error
 	if err := s.store.CreateRun(runID, sessionID); err != nil {
 		slog.Error("create run", "err", err)
 	}
-	s.touchRecent(sessionID, sess.Title, preview(message), runID)
+	s.touchRecent(sessionID, preview(message), runID, runRunning)
 
 	go s.runProvider(ctx, cancel, sess, runID, message)
 	return runID, nil
@@ -209,11 +217,14 @@ func (s *Service) runProvider(ctx context.Context, cancel context.CancelFunc, se
 		NativeSessionID: sess.NativeSessionID,
 	}, onEvent)
 
+	state := runDone
 	switch {
 	case errors.Is(err, context.Canceled):
+		state = runInterrupted
 		s.commit(sess.ID, "run_finished", runID, map[string]any{"runId": runID, "state": runInterrupted})
 		_ = s.store.FinishRun(runID, runInterrupted, "")
 	case err != nil:
+		state = runFailed
 		s.commit(sess.ID, "error", runID, map[string]any{"message": err.Error()})
 		s.commit(sess.ID, "run_finished", runID, map[string]any{"runId": runID, "state": runFailed})
 		_ = s.store.FinishRun(runID, runFailed, err.Error())
@@ -225,7 +236,7 @@ func (s *Service) runProvider(ctx context.Context, cancel context.CancelFunc, se
 	if res.FinalText != "" {
 		lastAssistant = res.FinalText
 	}
-	s.touchRecent(sess.ID, sess.Title, preview(lastAssistant), "")
+	s.touchRecent(sess.ID, preview(lastAssistant), "", state)
 }
 
 // commit appends an event to the ledger, then broadcasts it (write-then-derive).
@@ -247,8 +258,8 @@ func (s *Service) commit(sessionID, typ, runID string, payload map[string]any) {
 	s.bc.publish(Frame{SessionID: sessionID, Event: &ev})
 }
 
-func (s *Service) touchRecent(sessionID, title, prev, activeRun string) {
-	if err := s.store.UpdateRecentMeta(sessionID, title, prev, activeRun); err != nil {
+func (s *Service) touchRecent(sessionID, prev, activeRun, lastRunState string) {
+	if err := s.store.UpdateRecentMeta(sessionID, prev, activeRun, lastRunState); err != nil {
 		slog.Error("update recent meta", "err", err)
 	}
 }

@@ -25,6 +25,9 @@ export interface RecentSession {
   lastPreview: string;
   lastSeq: number;
   activeRunId?: string; // present while a run is active
+  lastRunState?: 'running' | RunState; // state of the most recent run
+  workspaceDir: string;
+  createdAt: string;
   updatedAt: string;
 }
 
@@ -133,6 +136,10 @@ export interface CreateSessionRequest {
   title?: string;
 }
 
+export interface RenameSessionRequest {
+  title: string;
+}
+
 export interface SendRequest {
   message: string;
   clientIntentId?: string;
@@ -164,6 +171,7 @@ export interface RenderRow {
   input?: unknown; // tool
   output?: unknown; // tool (present once the result lands)
   status?: 'running' | 'done'; // tool
+  createdAt?: string; // RFC3339, from the originating event
 }
 
 /**

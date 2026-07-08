@@ -24,14 +24,15 @@ type RenderState struct {
 
 // RenderRow is one display row. `kind` selects which fields are meaningful.
 type RenderRow struct {
-	Kind   string          `json:"kind"`             // user | assistant | tool | error
-	ID     string          `json:"id"`               // stable row id
-	Seq    int64           `json:"seq"`              // originating event seq
-	Text   string          `json:"text,omitempty"`   // user/assistant/error
-	Name   string          `json:"name,omitempty"`   // tool
-	Input  json.RawMessage `json:"input,omitempty"`  // tool
-	Output json.RawMessage `json:"output,omitempty"` // tool (set once the result lands)
-	Status string          `json:"status,omitempty"` // tool: running | done
+	Kind      string          `json:"kind"`                // user | assistant | tool | error
+	ID        string          `json:"id"`                  // stable row id
+	Seq       int64           `json:"seq"`                 // originating event seq
+	Text      string          `json:"text,omitempty"`      // user/assistant/error
+	Name      string          `json:"name,omitempty"`      // tool
+	Input     json.RawMessage `json:"input,omitempty"`     // tool
+	Output    json.RawMessage `json:"output,omitempty"`    // tool (set once the result lands)
+	Status    string          `json:"status,omitempty"`    // tool: running | done
+	CreatedAt string          `json:"createdAt,omitempty"` // RFC3339, from the originating event
 }
 
 type textPayload struct {
@@ -65,11 +66,11 @@ func Compute(events []store.Event) RenderState {
 		case "user_message":
 			var p textPayload
 			_ = json.Unmarshal(e.Payload, &p)
-			rs.Rows = append(rs.Rows, RenderRow{Kind: "user", ID: fmt.Sprintf("u%d", e.Seq), Seq: e.Seq, Text: p.Text})
+			rs.Rows = append(rs.Rows, RenderRow{Kind: "user", ID: fmt.Sprintf("u%d", e.Seq), Seq: e.Seq, Text: p.Text, CreatedAt: e.CreatedAt})
 		case "assistant_message":
 			var p textPayload
 			_ = json.Unmarshal(e.Payload, &p)
-			rs.Rows = append(rs.Rows, RenderRow{Kind: "assistant", ID: fmt.Sprintf("a%d", e.Seq), Seq: e.Seq, Text: p.Text})
+			rs.Rows = append(rs.Rows, RenderRow{Kind: "assistant", ID: fmt.Sprintf("a%d", e.Seq), Seq: e.Seq, Text: p.Text, CreatedAt: e.CreatedAt})
 		case "tool_call":
 			var p toolCallPayload
 			_ = json.Unmarshal(e.Payload, &p)
@@ -79,6 +80,7 @@ func Compute(events []store.Event) RenderState {
 			}
 			rs.Rows = append(rs.Rows, RenderRow{
 				Kind: "tool", ID: id, Seq: e.Seq, Name: p.Name, Input: p.Input, Status: "running",
+				CreatedAt: e.CreatedAt,
 			})
 			if p.ID != "" {
 				toolRow[p.ID] = len(rs.Rows) - 1
@@ -102,7 +104,7 @@ func Compute(events []store.Event) RenderState {
 		case "error":
 			var p errorPayload
 			_ = json.Unmarshal(e.Payload, &p)
-			rs.Rows = append(rs.Rows, RenderRow{Kind: "error", ID: fmt.Sprintf("e%d", e.Seq), Seq: e.Seq, Text: p.Message})
+			rs.Rows = append(rs.Rows, RenderRow{Kind: "error", ID: fmt.Sprintf("e%d", e.Seq), Seq: e.Seq, Text: p.Message, CreatedAt: e.CreatedAt})
 		}
 	}
 

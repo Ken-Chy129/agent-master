@@ -33,6 +33,9 @@ type RecentSession = {
   lastPreview: string
   lastSeq: number
   activeRunId?: string     // present while a run is active
+  lastRunState?: string    // "running" | "done" | "interrupted" | "failed"
+  workspaceDir: string
+  createdAt: string
   updatedAt: string
 }
 
@@ -63,6 +66,7 @@ type EventType =
 | GET | `/api/sessions?limit=&offset=` | — | `{ sessions: RecentSession[], hasMore: boolean }` |
 | POST | `/api/sessions` | `{ workspaceDir, model?, title? }` | `Session` |
 | GET | `/api/sessions/{id}` | — | `Session` (404 if missing) |
+| PATCH | `/api/sessions/{id}` | `{ title }` | `Session` (400 empty title, 404 if missing) |
 | DELETE | `/api/sessions/{id}` | — | `{ ok: true }` |
 | GET | `/api/sessions/{id}/messages?before_seq=&limit=` | — | `{ events: WireEvent[], hasMore: boolean }` |
 | POST | `/api/sessions/{id}/send` | `{ message, clientIntentId? }` | `202 { runId }` (409 if a run is active) |

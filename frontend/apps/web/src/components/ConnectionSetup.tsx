@@ -3,12 +3,16 @@ import { useStore } from '../store.js';
 
 const DEFAULT_BASE_URL = 'http://localhost:8888';
 
+/**
+ * Add-machine form. Rendered as a centered card on first run (no machines yet)
+ * and as a modal overlay afterwards.
+ */
 export function ConnectionSetup({
-  allowCancel = false,
+  asModal,
   onDone,
   onCancel,
 }: {
-  allowCancel?: boolean;
+  asModal: boolean;
   onDone?: () => void;
   onCancel?: () => void;
 }) {
@@ -40,66 +44,96 @@ export function ConnectionSetup({
     }
   };
 
-  return (
-    <form className="setup" onSubmit={submit}>
-      <h1>Add a machine</h1>
-      <p>
-        Enter an agent-master daemon URL and its token. Run{' '}
-        <code>agent-master pair</code> (or <code>agent-master token</code>) on that machine to get
-        them.
+  const form = (
+    <form
+      onSubmit={submit}
+      onClick={(e) => e.stopPropagation()}
+      className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-xl"
+    >
+      <h1 className="text-base font-semibold">添加机器</h1>
+      <p className="mt-1 mb-4 text-xs leading-relaxed text-ink-muted">
+        填入目标机器上 agent-master 守护进程的地址和 token。在那台机器上运行{' '}
+        <code className="rounded bg-raised px-1 py-0.5 font-mono text-[11px]">
+          agent-master pair
+        </code>{' '}
+        即可获取。
       </p>
 
-      <div className="field">
-        <label htmlFor="name">Name (optional)</label>
+      <Field label="名称（可选）">
         <input
-          id="name"
           type="text"
           value={name}
-          placeholder="e.g. dev-box"
+          placeholder="例如：dev-01"
           onChange={(e) => setName(e.target.value)}
           autoComplete="off"
           spellCheck={false}
+          className="w-full rounded-lg border border-border bg-canvas px-3 py-2 text-sm outline-none placeholder:text-ink-faint focus:border-accent"
         />
-      </div>
-
-      <div className="field">
-        <label htmlFor="baseUrl">Daemon URL</label>
+      </Field>
+      <Field label="守护进程地址">
         <input
-          id="baseUrl"
           type="text"
           value={baseUrl}
           placeholder={DEFAULT_BASE_URL}
           onChange={(e) => setBaseUrl(e.target.value)}
           autoComplete="off"
           spellCheck={false}
+          className="w-full rounded-lg border border-border bg-canvas px-3 py-2 font-mono text-sm outline-none placeholder:text-ink-faint focus:border-accent"
         />
-      </div>
-
-      <div className="field">
-        <label htmlFor="token">Token</label>
+      </Field>
+      <Field label="Token">
         <input
-          id="token"
           type="password"
           value={token}
           placeholder="Bearer token"
           onChange={(e) => setToken(e.target.value)}
           autoComplete="off"
           spellCheck={false}
+          className="w-full rounded-lg border border-border bg-canvas px-3 py-2 font-mono text-sm outline-none placeholder:text-ink-faint focus:border-accent"
         />
-      </div>
+      </Field>
 
-      {err && <p className="setup-error">{err}</p>}
+      {err && <p className="mb-3 text-xs text-danger">{err}</p>}
 
-      <div className="setup-actions">
-        <button type="submit" className="primary" disabled={!canSubmit}>
-          {busy ? 'Adding…' : 'Add machine'}
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className="flex-1 rounded-lg bg-accent py-2 text-sm font-medium text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {busy ? '添加中…' : '添加机器'}
         </button>
-        {allowCancel && (
-          <button type="button" onClick={onCancel}>
-            Cancel
+        {asModal && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-lg border border-border px-4 py-2 text-sm text-ink-muted transition-colors hover:border-border-strong hover:text-ink"
+          >
+            取消
           </button>
         )}
       </div>
     </form>
+  );
+
+  if (asModal) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+        onClick={onCancel}
+      >
+        {form}
+      </div>
+    );
+  }
+  return <div className="flex h-full items-center justify-center p-4">{form}</div>;
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="mb-3 block">
+      <span className="mb-1 block text-xs text-ink-muted">{label}</span>
+      {children}
+    </label>
   );
 }

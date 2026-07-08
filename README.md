@@ -61,6 +61,7 @@ curl -s -X POST localhost:8888/api/sessions/$SID/send -H "$AUTH" \
 | GET | `/api/sessions` | list sessions (recent projection) |
 | POST | `/api/sessions` | create `{workspaceDir, model?, title?}` |
 | GET | `/api/sessions/{id}` | session detail |
+| PATCH | `/api/sessions/{id}` | rename `{title}` |
 | DELETE | `/api/sessions/{id}` | delete |
 | GET | `/api/sessions/{id}/messages?before_seq=&limit=` | history (ledger events) |
 | POST | `/api/sessions/{id}/send` | `{message, clientIntentId}` → starts a run |

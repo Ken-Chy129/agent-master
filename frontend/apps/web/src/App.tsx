@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useStore } from './store.js';
 import { ConnectionSetup } from './components/ConnectionSetup.js';
-import { MachineSwitcher } from './components/MachineSwitcher.js';
-import { SessionList } from './components/SessionList.js';
-import { Conversation } from './components/Conversation.js';
-import { Composer } from './components/Composer.js';
+import { MachineView } from './components/MachineView.js';
+import { Overview } from './components/Overview.js';
+import { Rail } from './components/Rail.js';
+import { IconX } from './components/icons.js';
 
 export function App() {
   const initialized = useStore((s) => s.initialized);
   const machines = useStore((s) => s.machines);
-  const currentSessionId = useStore((s) => s.currentSessionId);
+  const view = useStore((s) => s.view);
   const error = useStore((s) => s.error);
   const clearError = useStore((s) => s.clearError);
   const init = useStore((s) => s.init);
@@ -22,46 +22,31 @@ export function App() {
   }, [init]);
 
   if (!initialized) {
-    return <div className="empty">Loading…</div>;
+    return <div className="flex h-full items-center justify-center text-sm text-ink-muted">加载中…</div>;
   }
 
-  const showSetup = machines.length === 0 || adding;
-  if (showSetup) {
-    return (
-      <ConnectionSetup
-        allowCancel={machines.length > 0}
-        onDone={() => setAdding(false)}
-        onCancel={() => setAdding(false)}
-      />
-    );
+  // First run: no machines yet — the add form is the whole page.
+  if (machines.length === 0) {
+    return <ConnectionSetup asModal={false} />;
   }
 
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <div className="sidebar-header">
-          <span className="brand">agent-master</span>
-          <MachineSwitcher onAdd={() => setAdding(true)} />
-        </div>
-        <SessionList />
-      </aside>
+    <div className="flex h-full">
+      <Rail onAddMachine={() => setAdding(true)} />
+      {view === 'overview' ? <Overview /> : <MachineView />}
 
-      <main className="main">
-        {error && (
-          <div className="banner">
-            <span>{error}</span>
-            <button onClick={clearError}>Dismiss</button>
-          </div>
-        )}
-        {currentSessionId ? (
-          <>
-            <Conversation />
-            <Composer />
-          </>
-        ) : (
-          <div className="empty">Select a session, or create a new one.</div>
-        )}
-      </main>
+      {error && (
+        <div className="fixed top-4 left-1/2 z-50 flex max-w-lg -translate-x-1/2 items-center gap-3 rounded-xl border border-danger/50 bg-danger-soft px-4 py-2.5 text-sm text-danger shadow-lg">
+          <span className="min-w-0 flex-1">{error}</span>
+          <button onClick={clearError} className="flex-none opacity-70 hover:opacity-100">
+            <IconX size={14} />
+          </button>
+        </div>
+      )}
+
+      {adding && (
+        <ConnectionSetup asModal onDone={() => setAdding(false)} onCancel={() => setAdding(false)} />
+      )}
     </div>
   );
 }

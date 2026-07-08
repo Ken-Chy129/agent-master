@@ -37,6 +37,7 @@ func New(cfg *config.Config, st *store.Store, svc *session.Service) *Server {
 	mux.Handle("GET /api/sessions", s.auth(http.HandlerFunc(s.handleListSessions)))
 	mux.Handle("POST /api/sessions", s.auth(http.HandlerFunc(s.handleCreateSession)))
 	mux.Handle("GET /api/sessions/{id}", s.auth(http.HandlerFunc(s.handleGetSession)))
+	mux.Handle("PATCH /api/sessions/{id}", s.auth(http.HandlerFunc(s.handleRenameSession)))
 	mux.Handle("DELETE /api/sessions/{id}", s.auth(http.HandlerFunc(s.handleDeleteSession)))
 	mux.Handle("GET /api/sessions/{id}/messages", s.auth(http.HandlerFunc(s.handleMessages)))
 	mux.Handle("POST /api/sessions/{id}/send", s.auth(http.HandlerFunc(s.handleSend)))
