@@ -2,7 +2,7 @@ BINARY  := agent-master
 PKG     := github.com/Ken-Chy129/agent-master
 VERSION ?= 0.0.1-dev
 LDFLAGS := -s -w -X $(PKG)/internal/version.Version=$(VERSION)
-PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
+PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
 .PHONY: build run tidy test vet clean release
 
@@ -30,9 +30,11 @@ clean:
 release:
 	@mkdir -p dist
 	@for p in $(PLATFORMS); do \
-		os=$${p%/*}; arch=$${p#*/}; out=dist/$(BINARY)-$$os-$$arch; \
+		os=$${p%/*}; arch=$${p#*/}; ext=""; \
+		if [ "$$os" = windows ]; then ext=".exe"; fi; \
+		name=$(BINARY)-$$os-$$arch$$ext; out=dist/$$name; \
 		echo "building $$out"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o $$out ./cmd/agent-master || exit 1; \
-		( cd dist && sha256sum $(BINARY)-$$os-$$arch > $(BINARY)-$$os-$$arch.sha256 ); \
+		( cd dist && sha256sum $$name > $$name.sha256 ); \
 	done
 	@echo "release artifacts in dist/"

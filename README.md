@@ -96,10 +96,12 @@ npm run dev -w @agent-master/web    # Vite on http://localhost:5173
 tokens in the OS-encrypted secure store (Electron `safeStorage`), and handles
 `agentmaster://` pairing deep links.
 
-Download the prebuilt macOS app from the
-[Releases page](https://github.com/Ken-Chy129/agent-master/releases/latest)
-(`agent-master-<version>-<arch>.dmg` — `arm64` for Apple Silicon, `x64` for
-Intel). The build is unsigned, so on first launch clear the download quarantine:
+Download the prebuilt app from the
+[Releases page](https://github.com/Ken-Chy129/agent-master/releases/latest):
+macOS `agent-master-<version>-<arch>.dmg` (`arm64` for Apple Silicon, `x64` for
+Intel) or the Windows installer `agent-master-<version>-x64.exe`. Both builds
+are unsigned: on Windows click through the SmartScreen warning once; on macOS
+clear the download quarantine on first launch:
 
 ```bash
 xattr -cr /Applications/agent-master.app   # then open normally
@@ -120,6 +122,8 @@ use the tailnet URL (set it as `public_url`) — no public port exposure.
 Installs the latest release binary into `~/.local/bin` (no sudo). Override with
 `INSTALL_DIR=` (a system dir like `/usr/local/bin` then uses sudo).
 
+**Linux / macOS**:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Ken-Chy129/agent-master/main/install.sh | bash
 # ensure ~/.local/bin is on PATH (the installer prints this if needed)
@@ -127,8 +131,19 @@ agent-master start   # install + start the background service (systemd / launchd
 agent-master pair    # show URL/token/QR to connect a client
 ```
 
+**Windows** (10 1903+, PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/Ken-Chy129/agent-master/main/install.ps1 | iex
+agent-master start   # runs in the background + auto-starts at logon
+agent-master pair
+```
+
 Service commands: `start` / `stop` / `restart` / `status` / `uninstall`.
-`serve` runs in the foreground (dev/debug).
+`serve` runs in the foreground (dev/debug). On Linux/macOS the background
+service is a systemd user unit / launchd LaunchAgent; on Windows it's a
+windowless background process plus a per-user Run-key autostart (no admin
+needed).
 
 ## Layout
 
@@ -138,9 +153,10 @@ internal/
   config/           ~/.agent-master/config.json (host, port, token)
   store/            SQLite (modernc.org/sqlite): event ledger + projections
   server/           HTTP: /health + token-protected API
-  service/          systemd / launchd install
+  service/          systemd / launchd / Windows Run-key install
   version/          build version
-install.sh          release installer
+install.sh          release installer (Linux/macOS)
+install.ps1         release installer (Windows)
 Makefile            build / release (cross-compile)
 ```
 

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -50,10 +49,11 @@ func (c *Claude) Run(ctx context.Context, o RunOptions, onEvent func(StreamEvent
 
 	cmd := exec.CommandContext(ctx, c.Bin, args...)
 	cmd.Dir = o.WorkspaceDir
-	// Interrupt gracefully (SIGINT) rather than SIGKILL so claude can flush its
-	// local transcript, keeping later --resume intact. Fall back to kill after a
-	// grace period.
-	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	// Platform-specific process setup (see claude_proc_*.go): on Unix interrupt
+	// gracefully (SIGINT) so claude can flush its local transcript, keeping later
+	// --resume intact; on Windows hide the child console window. Either way exec
+	// falls back to a hard kill after the WaitDelay grace period.
+	prepareCmd(cmd)
 	cmd.WaitDelay = 5 * time.Second
 
 	stdout, err := cmd.StdoutPipe()

@@ -6,6 +6,7 @@ package server
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -54,10 +55,26 @@ func New(cfg *config.Config, st *store.Store, svc *session.Service) *Server {
 	return s
 }
 
+// Listen binds the configured address without serving yet. Callers that must
+// act only once the port is actually held — e.g. recording a pidfile — bind
+// first, then Serve.
+func (s *Server) Listen() (net.Listener, error) {
+	return net.Listen("tcp", s.cfg.Addr())
+}
+
+// Serve blocks serving HTTP on ln until the server is shut down.
+func (s *Server) Serve(ln net.Listener) error {
+	slog.Info("agent-master listening", "addr", s.cfg.Addr(), "version", version.Version)
+	return s.http.Serve(ln)
+}
+
 // ListenAndServe blocks serving HTTP until the server is shut down.
 func (s *Server) ListenAndServe() error {
-	slog.Info("agent-master listening", "addr", s.cfg.Addr(), "version", version.Version)
-	return s.http.ListenAndServe()
+	ln, err := s.Listen()
+	if err != nil {
+		return err
+	}
+	return s.Serve(ln)
 }
 
 // Shutdown gracefully stops the server.
