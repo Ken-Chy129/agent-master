@@ -117,12 +117,13 @@ After=network-online.target
 
 [Service]
 ExecStart=%s serve
+Environment=PATH=%s
 Restart=on-failure
 RestartSec=3
 
 [Install]
 WantedBy=default.target
-`, exe)
+`, exe, servicePATH())
 	if err := os.WriteFile(unitPath, []byte(unit), 0o644); err != nil {
 		return err
 	}
@@ -184,11 +185,15 @@ func installLaunchd(exe string) error {
     <string>%s</string>
     <string>serve</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>%s</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
 </dict>
 </plist>
-`, macLabel, exe)
+`, macLabel, exe, servicePATH())
 	if err := os.WriteFile(plistPath, []byte(plist), 0o644); err != nil {
 		return err
 	}
@@ -236,6 +241,21 @@ func executablePath() (string, error) {
 }
 
 func uid() string { return fmt.Sprintf("%d", os.Getuid()) }
+
+// servicePATH builds a PATH for the managed service. systemd/launchd start
+// daemons with a minimal PATH; include the user's common bin dirs first so the
+// daemon (and the claude CLI it spawns) resolve tools installed under the home
+// directory, e.g. ~/.local/bin/claude.
+func servicePATH() string {
+	dirs := []string{"/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin"}
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append([]string{
+			filepath.Join(home, ".local", "bin"),
+			filepath.Join(home, "bin"),
+		}, dirs...)
+	}
+	return strings.Join(dirs, ":")
+}
 
 // runQuiet runs a command discarding its output on success; on failure it folds
 // any output into the error. Used for install/uninstall so best-effort steps

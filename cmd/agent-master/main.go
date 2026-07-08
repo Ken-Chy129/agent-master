@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -135,8 +136,33 @@ func resolveClaudeBin(cfg *config.Config) string {
 	if p, err := exec.LookPath("claude"); err == nil {
 		return p
 	}
+	// Background services (systemd/launchd) run with a minimal PATH that usually
+	// omits ~/.local/bin — where the claude CLI commonly installs — so LookPath
+	// fails even though claude is present. Probe the usual locations.
+	if home, err := os.UserHomeDir(); err == nil {
+		for _, p := range []string{
+			filepath.Join(home, ".local", "bin", "claude"),
+			filepath.Join(home, ".claude", "local", "claude"),
+			filepath.Join(home, "bin", "claude"),
+			"/usr/local/bin/claude",
+			"/opt/homebrew/bin/claude",
+			"/usr/bin/claude",
+		} {
+			if isExecutableFile(p) {
+				return p
+			}
+		}
+	}
 	slog.Warn("claude not found on PATH; set claude_bin in config or install claude")
 	return "claude"
+}
+
+func isExecutableFile(p string) bool {
+	info, err := os.Stat(p)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	return info.Mode()&0o111 != 0
 }
 
 // cmdStart installs + starts the background service, then prints the connection
