@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -108,9 +110,23 @@ func cmdServe(args []string) error {
 	claudeBin := resolveClaudeBin(cfg)
 	svc := session.NewService(st, provider.NewClaude(claudeBin))
 	srv := server.New(cfg, st, svc)
+	ln, err := srv.Listen()
+	if err != nil {
+		return err // e.g. port in use — another instance is already serving
+	}
+
+	// Now that we hold the port, record our pid so `stop` can find the daemon on
+	// platforms without a service manager (Windows). Binding first means a
+	// failed duplicate `serve` can never clobber the live daemon's pidfile.
+	// Best-effort; the daemon runs fine without it.
+	if pidPath, err := config.PIDPath(); err == nil {
+		_ = os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644)
+		defer os.Remove(pidPath)
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()
@@ -140,14 +156,7 @@ func resolveClaudeBin(cfg *config.Config) string {
 	// omits ~/.local/bin — where the claude CLI commonly installs — so LookPath
 	// fails even though claude is present. Probe the usual locations.
 	if home, err := os.UserHomeDir(); err == nil {
-		for _, p := range []string{
-			filepath.Join(home, ".local", "bin", "claude"),
-			filepath.Join(home, ".claude", "local", "claude"),
-			filepath.Join(home, "bin", "claude"),
-			"/usr/local/bin/claude",
-			"/opt/homebrew/bin/claude",
-			"/usr/bin/claude",
-		} {
+		for _, p := range claudeCandidates(home) {
 			if isExecutableFile(p) {
 				return p
 			}
@@ -157,12 +166,37 @@ func resolveClaudeBin(cfg *config.Config) string {
 	return "claude"
 }
 
+func claudeCandidates(home string) []string {
+	if runtime.GOOS == "windows" {
+		candidates := []string{
+			filepath.Join(home, ".local", "bin", "claude.exe"), // native installer
+		}
+		// npm -g installs a claude.cmd shim; prefer the native claude.exe — Go
+		// (and cmd.exe quoting in general) can reject .cmd arguments containing
+		// special characters, which chat messages routinely do.
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			candidates = append(candidates, filepath.Join(appData, "npm", "claude.cmd"))
+		}
+		return candidates
+	}
+	return []string{
+		filepath.Join(home, ".local", "bin", "claude"),
+		filepath.Join(home, ".claude", "local", "claude"),
+		filepath.Join(home, "bin", "claude"),
+		"/usr/local/bin/claude",
+		"/opt/homebrew/bin/claude",
+		"/usr/bin/claude",
+	}
+}
+
 func isExecutableFile(p string) bool {
 	info, err := os.Stat(p)
 	if err != nil || info.IsDir() {
 		return false
 	}
-	return info.Mode()&0o111 != 0
+	// Windows has no execute mode bits; the probed paths carry explicit
+	// executable extensions, so existing as a regular file is enough.
+	return runtime.GOOS == "windows" || info.Mode()&0o111 != 0
 }
 
 // cmdStart installs + starts the background service, then prints the connection

@@ -1,5 +1,6 @@
 // Package service installs the daemon as a background service: a systemd user
-// unit on Linux, a launchd LaunchAgent on macOS. It mirrors Garyx's
+// unit on Linux, a launchd LaunchAgent on macOS, a per-user Run-key autostart
+// on Windows (see service_windows.go). It mirrors Garyx's
 // install-as-managed-service model so each machine is two commands to set up.
 package service
 
@@ -28,6 +29,8 @@ func Install() error {
 		return installSystemd(exe)
 	case "darwin":
 		return installLaunchd(exe)
+	case "windows":
+		return installWindows(exe)
 	default:
 		return fmt.Errorf("service install not supported on %s", runtime.GOOS)
 	}
@@ -40,6 +43,8 @@ func Uninstall() error {
 		return uninstallSystemd()
 	case "darwin":
 		return uninstallLaunchd()
+	case "windows":
+		return uninstallWindows()
 	default:
 		return fmt.Errorf("service uninstall not supported on %s", runtime.GOOS)
 	}
@@ -55,6 +60,8 @@ func Installed() bool {
 		path, err = systemdUnitPath()
 	case "darwin":
 		path, err = launchdPlistPath()
+	case "windows":
+		return installedWindows()
 	default:
 		return false
 	}
@@ -79,6 +86,8 @@ func Stop() error {
 			return err
 		}
 		return nil
+	case "windows":
+		return stopWindows()
 	default:
 		return fmt.Errorf("service stop not supported on %s", runtime.GOOS)
 	}
@@ -96,6 +105,8 @@ func Restart() error {
 		}
 		_ = runQuiet("launchctl", "bootout", "gui/"+uid()+"/"+macLabel) // best-effort; may be stopped
 		return runQuiet("launchctl", "bootstrap", "gui/"+uid(), plistPath)
+	case "windows":
+		return restartWindows()
 	default:
 		return fmt.Errorf("service restart not supported on %s", runtime.GOOS)
 	}

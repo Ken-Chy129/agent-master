@@ -51,7 +51,7 @@ agent-master/
 │   ├── session/             # 会话编排：service.go（发消息/中断/账本写入/投影）+ broadcast.go（SSE 帧广播：事件/delta）
 │   ├── render/              # ★ 服务端 render_state：Compute([]Event)→RenderState 纯函数 reducer；有单测
 │   ├── server/              # HTTP：server.go(路由) auth.go cors.go sessions.go stream.go(SSE+render) workspaces.go；有 httptest 单测
-│   ├── service/             # systemd(Linux)/launchd(macOS) 服务安装
+│   ├── service/             # systemd(Linux)/launchd(macOS)/Run键自启(Windows) 服务安装
 │   └── version/             # 构建版本（ldflags 注入）
 ├── frontend/                # npm workspaces
 │   ├── packages/core/       # @agent-master/core（纯 TS：ApiClient/SseClient/types/machines）—— 三端契约的 TS 参考实现
@@ -61,8 +61,9 @@ agent-master/
 │   ├── core/                # 纯 Kotlin/JVM：Models/ApiClient/SseClient/SessionStore（对齐 TS core）；34 单测
 │   └── app/                 # Compose App：MainActivity/ViewModel/ConversationScreen/EncryptedMachineStore/深链
 ├── docs/                    # DESIGN.md（架构）/ API.md（契约）/ HANDOFF.md（本文件）
-├── install.sh               # GitHub Release 安装脚本（按平台下载）
-├── Makefile                 # build / release(交叉编译4平台) / test / vet
+├── install.sh               # GitHub Release 安装脚本（Linux/macOS）
+├── install.ps1              # GitHub Release 安装脚本（Windows PowerShell）
+├── Makefile                 # build / release(交叉编译6平台) / test / vet
 └── README.md
 ```
 
@@ -127,8 +128,9 @@ Client            Go daemon                          claude CLI(子进程)
 | 模块 | 本机验证 | 需在 Mac/设备验证 |
 |---|---|---|
 | Go daemon（会话/账本/SSE/render/pair/service） | ✅ 单测 + 真实 claude E2E | — |
+| Go daemon（Windows：Run键自启/pidfile stop/CREATE_NO_WINDOW） | ✅ 交叉编译 + vet | ❗ 全部行为需 Windows 实机验证（本环境无 Windows） |
 | Web（React 哑渲染 + 多机 + 目录选择 + 流式） | ✅ typecheck/build + core E2E | 浏览器目视 |
-| 桌面（Electron） | ✅ 编译（tsc） | GUI 启动 + `.dmg` 打包（macOS 专属） |
+| 桌面（Electron） | ✅ 编译（tsc） | GUI 启动 + `.dmg` 打包（macOS 专属）；Windows NSIS 包由 CI 出，需实机目视 |
 | Android `:core` | ✅ `gradle :core:test` 34 绿 | — |
 | Android `:app`（Compose UI） | ❌（本机无 Android SDK） | Android Studio 构建运行 |
 
@@ -142,11 +144,11 @@ Client            Go daemon                          claude CLI(子进程)
 ```bash
 make build                    # → dist/agent-master（静态二进制）
 make test                     # go test ./...（store/server/render 单测）
-make release                  # 交叉编译 linux/darwin × amd64/arm64 + sha256
+make release                  # 交叉编译 linux/darwin/windows × amd64/arm64 + sha256
 ./dist/agent-master serve     # 前台运行，监听 :8888
 ./dist/agent-master token     # 打印本机 token
 ./dist/agent-master pair      # 打印 URL/token/深链/二维码
-./dist/agent-master start             # 装成 systemd/launchd 后台服务并启动（stop/restart/status/uninstall 同理）
+./dist/agent-master start             # 装成后台服务并启动（systemd/launchd/Windows Run键；stop/restart/status/uninstall 同理）
 ```
 
 ### 前端 Web
@@ -178,7 +180,7 @@ cd android
 
 ## 8. 部署与网络
 
-- **推荐**：每台机器 `curl install.sh | bash`（装到 `~/.local/bin`，免 sudo；Release 已发 v0.1.0）或 `make build` 后 `agent-master start`；把机器 + 你的设备加进同一 **Tailscale tailnet**，客户端用 tailnet 地址（`http://100.x.x.x:8888`）添加机器。Tailscale 对 daemon 透明，零代码、零公网暴露。
+- **推荐**：每台机器 `curl install.sh | bash`（Linux/macOS，装到 `~/.local/bin`，免 sudo；Release 已发 v0.1.0）/ `irm install.ps1 | iex`（Windows），或 `make build` 后 `agent-master start`；把机器 + 你的设备加进同一 **Tailscale tailnet**，客户端用 tailnet 地址（`http://100.x.x.x:8888`）添加机器。Tailscale 对 daemon 透明，零代码、零公网暴露。
 - **鉴权**：单 Bearer token（`crypto/subtle` 常量时间比较），首启自动生成存 `~/.agent-master/config.json`（0600）。Docker 端口映射下不启用「同机免密」，统一用 token。
 - **Docker（可选）**：镜像内需装 `claude` 并挂 `~/.claude` 凭据 + 挂工作目录 + 挂 SQLite 卷（详见 DESIGN.md §9）。原生二进制部署更省事（直接用本机 claude 登录）。
 
@@ -211,6 +213,13 @@ cd android
 - **本环境网络**：`github.com` 资产下载/`services.gradle.org` 被墙；**能用的镜像**：`goproxy.cn`（Go）、`npmmirror.com`（npm/Electron）、`maven.aliyun.com` + 腾讯 gradle 镜像（Android，已配在 `android/settings.gradle.kts` + wrapper）。SSH 走 `ssh.github.com:443`（22 端口不通，见 `~/.ssh/config`）。
 - **Android `:app` 从未在本环境编译**（无 Android SDK）——首次 Mac 构建可能需要小修（版本/依赖），`:core` 已测试无虞。
 - **逐字流式粒度由 claude 决定**：短回答常一个 delta 到位，长回答才明显逐字。
+- **Windows 的差异（`service_windows.go` / `claude_proc_windows.go`）**：
+  - 后台方式是 **HKCU Run 键自启 + detached 进程**，不是真服务——`schtasks` 的登录触发器和 Windows 服务都要管理员权限，且服务跑在用户 profile 之外（claude 登录态在用户 profile 里）。代价：无 crash 自动重启。
+  - 自启命令用 `conhost.exe --headless` 包一层保证无窗口，需要 **Windows 10 1903+**。
+  - `stop` 靠 daemon 写的 `~/.agent-master/daemon.pid` + `taskkill /T /F`（隐藏控制台进程收不到优雅关闭；SQLite journal 保证安全，但会连带杀掉进行中的 claude run）。
+  - **中断 run 在 Windows 上是硬杀**（无法跨控制台发 Ctrl+C），claude 转写是增量落盘的，最坏丢被中断 run 的尾巴。
+  - claude 探测优先 `%USERPROFILE%\.local\bin\claude.exe`（原生安装器），npm 的 `claude.cmd` 垫片放最后——cmd.exe 对含特殊字符的参数（聊天消息很常见）会出错，推荐用原生安装。
+  - **以上均未在 Windows 实机验证过**（本环境只有 Linux，只做了交叉编译 + vet）。
 - **render 全量重算**：`renderCap=2000` 事件上限；超长会话需做增量（见待做 #7）。
 - **git 提交约定**：作者 `Ken-Chy129 <ken-chy129@qq.com>`；`dist/`、`node_modules/`、`android` 的 `build/`.gradle/` 均已 gitignore，勿提交产物。
 

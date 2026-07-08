@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { MachineProfile } from '@agent-master/core';
 import { EMPTY_RUNTIME, useStore } from '../store.js';
+import { ConfirmDialog } from './ConfirmDialog.js';
 import { IconGrid, IconPlus, IconTrash } from './icons.js';
 import { Menu, MenuItem } from './Menu.js';
 
@@ -77,6 +78,7 @@ function MachineAvatar({
 }) {
   const removeMachine = useStore((s) => s.removeMachine);
   const [menu, setMenu] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const dotColor =
     online === null ? 'bg-ink-faint' : online ? 'bg-success' : 'bg-ink-faint';
@@ -114,12 +116,22 @@ function MachineAvatar({
             label="移除机器"
             onClick={() => {
               setMenu(false);
-              if (window.confirm(`移除机器「${machine.name}」？（不影响机器上的数据）`)) {
-                void removeMachine(machine.id);
-              }
+              setConfirmRemove(true);
             }}
           />
         </Menu>
+      )}
+      {confirmRemove && (
+        <ConfirmDialog
+          title={`移除机器「${machine.name}」？`}
+          description="仅从这个客户端移除，不影响机器上的守护进程和会话数据。"
+          confirmLabel="移除"
+          onConfirm={() => {
+            setConfirmRemove(false);
+            void removeMachine(machine.id);
+          }}
+          onCancel={() => setConfirmRemove(false)}
+        />
       )}
     </div>
   );

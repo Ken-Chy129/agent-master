@@ -3,7 +3,7 @@
 # IMPORTANT: the shared web build MUST exist before packaging. Run
 #   npm run build -w @agent-master/web
 # (the `build`/`dist` npm scripts in this package do this for you). Packaging a
-# real macOS .dmg/.zip must be done ON macOS.
+# real macOS .dmg/.zip must be done ON macOS; the Windows installer on Windows.
 appId: com.agent-master.desktop
 productName: agent-master
 copyright: agent-master
@@ -63,3 +63,17 @@ mac:
       - CFBundleURLName: com.agent-master.desktop.pair
         CFBundleURLSchemes:
           - agentmaster
+
+win:
+  # Unsigned build (no code-signing cert in CI); SmartScreen will warn once on
+  # first launch. agentmaster:// deep links are registered at runtime by
+  # main.ts (setAsDefaultProtocolClient writes the per-user registry keys).
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: true
+  perMachine: false # per-user install, no admin prompt

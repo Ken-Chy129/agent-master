@@ -22,6 +22,7 @@ const (
 	dirName    = ".agent-master"
 	configName = "config.json"
 	dbName     = "agent-master.db"
+	pidName    = "daemon.pid"
 )
 
 // Config is the persisted daemon configuration.
@@ -70,6 +71,17 @@ func DBPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, dbName), nil
+}
+
+// PIDPath returns the daemon pidfile path. The serving daemon records its pid
+// there so `agent-master stop` can find it on platforms without a service
+// manager (Windows).
+func PIDPath() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, pidName), nil
 }
 
 // Default builds a config with a freshly generated token.
