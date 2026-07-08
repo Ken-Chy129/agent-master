@@ -62,16 +62,7 @@ export function Composer() {
             className="block max-h-50 min-h-[72px] w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-base leading-relaxed outline-none placeholder:text-ink-faint"
           />
           <div className="flex items-center gap-2 px-3 pb-2.5">
-            <span className="flex items-center gap-1.5 text-[11px] text-ink-faint">
-              {runActive ? (
-                <>
-                  <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-accent" />
-                  正在运行，可先写下一条指令
-                </>
-              ) : (
-                'Enter 发送 · Shift+Enter 换行'
-              )}
-            </span>
+            <span className="text-[11px] text-ink-faint">Enter 发送 · Shift+Enter 换行</span>
             <div className="flex-1" />
             {runActive ? (
               <button
