@@ -16,6 +16,7 @@ import {
   IconTrash,
   IconX,
 } from './icons.js';
+import { ConfirmDialog } from './ConfirmDialog.js';
 import { Menu, MenuItem } from './Menu.js';
 import { NewSessionModal } from './NewSessionModal.js';
 
@@ -301,6 +302,7 @@ function SessionRow({
 
   const [menu, setMenu] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [draft, setDraft] = useState(session.title);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -395,16 +397,25 @@ function SessionRow({
               label="删除"
               onClick={() => {
                 setMenu(false);
-                if (
-                  window.confirm(`删除会话「${session.title || '（未命名）'}」？此操作不可恢复。`)
-                ) {
-                  void deleteSession(machineId, session.id);
-                }
+                setConfirmDelete(true);
               }}
             />
           </Menu>
         )}
       </div>
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title={`删除会话「${session.title || '（未命名）'}」？`}
+          description="会话及其全部消息记录将被永久删除，此操作不可恢复。"
+          confirmLabel="删除"
+          onConfirm={() => {
+            setConfirmDelete(false);
+            void deleteSession(machineId, session.id);
+          }}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
     </div>
   );
 }
