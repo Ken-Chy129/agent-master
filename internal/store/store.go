@@ -6,6 +6,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -51,6 +52,15 @@ func (s *Store) Close() error { return s.DB.Close() }
 func (s *Store) migrate() error {
 	for _, stmt := range schemaStatements {
 		if _, err := s.DB.Exec(stmt); err != nil {
+			return fmt.Errorf("migrate: %w", err)
+		}
+	}
+	// Additive columns: ALTER TABLE isn't idempotent, so tolerate the
+	// duplicate-column error on re-runs.
+	for _, stmt := range []string{
+		`ALTER TABLE recent_sessions ADD COLUMN last_run_state TEXT`,
+	} {
+		if _, err := s.DB.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("migrate: %w", err)
 		}
 	}

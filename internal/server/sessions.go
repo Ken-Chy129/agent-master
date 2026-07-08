@@ -74,6 +74,31 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sess)
 }
 
+func (s *Server) handleRenameSession(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	body.Title = strings.TrimSpace(body.Title)
+	if body.Title == "" {
+		writeErr(w, http.StatusBadRequest, errors.New("title is required"))
+		return
+	}
+	sess, err := s.svc.RenameSession(r.PathValue("id"), body.Title)
+	if errors.Is(err, session.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sess)
+}
+
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	if err := s.svc.DeleteSession(r.PathValue("id")); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)

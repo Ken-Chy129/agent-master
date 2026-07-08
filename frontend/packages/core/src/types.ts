@@ -25,6 +25,7 @@ export interface RecentSession {
   lastPreview: string;
   lastSeq: number;
   activeRunId?: string; // present while a run is active
+  lastRunState?: 'running' | RunState; // state of the most recent run
   updatedAt: string;
 }
 
@@ -131,6 +132,10 @@ export interface CreateSessionRequest {
   workspaceDir: string;
   model?: string;
   title?: string;
+}
+
+export interface RenameSessionRequest {
+  title: string;
 }
 
 export interface SendRequest {

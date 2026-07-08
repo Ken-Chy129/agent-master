@@ -152,14 +152,49 @@ func TestProjectionLastSeq(t *testing.T) {
 		}
 	}
 	// UpdateRecentMeta must not clobber last_seq.
-	if err := st.UpdateRecentMeta("s1", "new title", "hello", ""); err != nil {
+	if err := st.UpdateRecentMeta("s1", "hello", "", "done"); err != nil {
 		t.Fatal(err)
 	}
 	rows, _, err := st.ListRecent(10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].LastSeq != 3 || rows[0].Title != "new title" || rows[0].LastPreview != "hello" {
-		t.Fatalf("projection = %+v, want last_seq=3 title='new title' preview='hello'", rows[0])
+	if len(rows) != 1 || rows[0].LastSeq != 3 || rows[0].LastPreview != "hello" || rows[0].LastRunState != "done" {
+		t.Fatalf("projection = %+v, want last_seq=3 preview='hello' lastRunState='done'", rows[0])
+	}
+}
+
+func TestRenameSession(t *testing.T) {
+	st := openTestStore(t)
+	mustSession(t, st, "s1")
+
+	if err := st.RenameSession("s1", "renamed"); err != nil {
+		t.Fatal(err)
+	}
+	sess, err := st.GetSession("s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Title != "renamed" {
+		t.Fatalf("session title = %q, want renamed", sess.Title)
+	}
+	rows, _, err := st.ListRecent(10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Title != "renamed" {
+		t.Fatalf("projection title = %+v, want renamed", rows)
+	}
+	// A run-meta refresh must not clobber the renamed title.
+	if err := st.UpdateRecentMeta("s1", "reply", "", "done"); err != nil {
+		t.Fatal(err)
+	}
+	rows, _, _ = st.ListRecent(10, 0)
+	if rows[0].Title != "renamed" {
+		t.Fatalf("title after meta update = %q, want renamed", rows[0].Title)
+	}
+
+	if err := st.RenameSession("missing", "x"); err != ErrNotFound {
+		t.Fatalf("rename missing = %v, want ErrNotFound", err)
 	}
 }
