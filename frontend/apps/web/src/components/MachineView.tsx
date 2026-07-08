@@ -21,7 +21,6 @@ import { NewSessionModal } from './NewSessionModal.js';
 
 const GROUP_MODE_KEY = 'agent-master.groupMode';
 const COLLAPSED_KEY = 'agent-master.collapsedGroups';
-const COLUMN_COLLAPSED_KEY = 'agent-master.sessionColumnCollapsed';
 
 function loadGroupMode(): GroupMode {
   try {
@@ -47,51 +46,34 @@ function loadCollapsed(): Set<string> {
 export function MachineView() {
   const machineId = useStore((s) => s.activeMachineId);
   const currentSessionId = useStore((s) => s.currentSessionId);
-
-  const [columnCollapsed, setColumnCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem(COLUMN_COLLAPSED_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-  const toggleColumn = () => {
-    setColumnCollapsed((v) => {
-      try {
-        localStorage.setItem(COLUMN_COLLAPSED_KEY, v ? '0' : '1');
-      } catch {
-        /* ignore */
-      }
-      return !v;
-    });
-  };
+  const columnCollapsed = useStore((s) => s.sessionColumnCollapsed);
+  const toggleColumn = useStore((s) => s.toggleSessionColumn);
 
   if (!machineId) return null;
   return (
     <div className="flex min-w-0 flex-1">
-      {columnCollapsed ? (
-        <div className="flex w-9 flex-none flex-col items-center border-r border-border bg-surface pt-3">
-          <button
-            title="展开会话列表"
-            onClick={toggleColumn}
-            className="rounded-md p-1 text-ink-faint hover:bg-raised hover:text-ink"
-          >
-            <IconPanelLeft size={15} />
-          </button>
-        </div>
-      ) : (
-        <SessionColumn machineId={machineId} onCollapse={toggleColumn} />
-      )}
-      <main className="flex min-w-0 flex-1 flex-col bg-canvas">
+      {!columnCollapsed && <SessionColumn machineId={machineId} onCollapse={toggleColumn} />}
+      <main className="relative flex min-w-0 flex-1 flex-col bg-canvas">
         {currentSessionId ? (
           <>
             <Conversation />
             <Composer />
           </>
         ) : (
-          <div className="m-auto text-center text-sm text-ink-muted">
-            <p>选择一个会话，或新建一个。</p>
-          </div>
+          <>
+            {columnCollapsed && (
+              <button
+                title="展开会话列表"
+                onClick={toggleColumn}
+                className="absolute top-3 left-3 rounded-md p-1.5 text-ink-faint hover:bg-raised hover:text-ink"
+              >
+                <IconPanelLeft size={15} />
+              </button>
+            )}
+            <div className="m-auto text-center text-sm text-ink-muted">
+              <p>选择一个会话，或新建一个。</p>
+            </div>
+          </>
         )}
       </main>
     </div>

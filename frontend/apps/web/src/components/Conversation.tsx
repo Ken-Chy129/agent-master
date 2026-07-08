@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RenderRow } from '@agent-master/core';
 import { copyText } from '../lib/copy.js';
 import { EMPTY_RENDER, useStore } from '../store.js';
-import { IconCheck, IconChevronRight, IconCopy, IconTerminal } from './icons.js';
+import { IconCheck, IconChevronRight, IconCopy, IconPanelLeft, IconTerminal } from './icons.js';
 import { Markdown } from './Markdown.js';
 
 /** Feed item: a plain row, or a run of consecutive tool rows folded together. */
@@ -51,11 +51,23 @@ export function Conversation() {
     if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
 
+  const columnCollapsed = useStore((s) => s.sessionColumnCollapsed);
+  const toggleColumn = useStore((s) => s.toggleSessionColumn);
+
   const connecting = streamStatus === 'connecting' && render.rows.length === 0;
 
   return (
     <>
       <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2.5">
+        {columnCollapsed && (
+          <button
+            title="展开会话列表"
+            onClick={toggleColumn}
+            className="-ml-1 flex-none rounded-md p-1 text-ink-faint hover:bg-raised hover:text-ink"
+          >
+            <IconPanelLeft size={15} />
+          </button>
+        )}
         <div className="min-w-0">
           <div className="truncate text-[13px] font-semibold">
             {currentSessionMeta?.title || '会话'}
@@ -74,8 +86,8 @@ export function Conversation() {
         </div>
       </header>
 
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-        <div className="mx-auto flex max-w-3xl flex-col gap-3">
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
+        <div className="mx-auto flex max-w-3xl flex-col gap-4">
           {connecting && <div className="py-10 text-center text-sm text-ink-muted">加载中…</div>}
           {!connecting && render.rows.length === 0 && (
             <div className="py-14 text-center">
@@ -119,14 +131,7 @@ function StatusPill({
       </span>
     );
   }
-  if (lastRunState === 'done') {
-    return (
-      <span className="flex items-center gap-1.5 rounded-full bg-success-soft px-2.5 py-0.5 text-[11px] text-success">
-        <span className="h-1.5 w-1.5 rounded-full bg-success" />
-        已完成
-      </span>
-    );
-  }
+  // Success needs no badge — a finished transcript speaks for itself.
   if (lastRunState === 'failed' || lastRunState === 'interrupted') {
     return (
       <span className="flex items-center gap-1.5 rounded-full bg-danger-soft px-2.5 py-0.5 text-[11px] text-danger">
@@ -153,7 +158,7 @@ function Row({ row }: { row: RenderRow }) {
   switch (row.kind) {
     case 'user':
       return (
-        <div className="max-w-[80%] self-end rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap">
+        <div className="max-w-[75%] self-end rounded-2xl rounded-br-md bg-raised px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap">
           {row.text}
         </div>
       );

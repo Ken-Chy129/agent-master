@@ -69,6 +69,16 @@ function stopStream(): void {
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
+const COLUMN_COLLAPSED_KEY = 'agent-master.sessionColumnCollapsed';
+
+function loadColumnCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLUMN_COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 function errText(err: unknown): string {
   if (err instanceof ApiError) return `${err.message} (HTTP ${err.status})`;
   if (err instanceof Error) return err.message;
@@ -111,6 +121,9 @@ interface StoreState {
   view: View;
   /** The machine whose workspace is open (view === 'machine'). */
   activeMachineId: string | null;
+  /** Whether the session-list column is collapsed (persisted UI state). */
+  sessionColumnCollapsed: boolean;
+  toggleSessionColumn: () => void;
 
   /** The open session and which machine it lives on. */
   currentSessionId: string | null;
@@ -177,6 +190,18 @@ export const useStore = create<StoreState>((set, get) => {
     seenSeq: {},
     view: 'overview',
     activeMachineId: null,
+    sessionColumnCollapsed: loadColumnCollapsed(),
+    toggleSessionColumn: () => {
+      set((state) => {
+        const next = !state.sessionColumnCollapsed;
+        try {
+          localStorage.setItem(COLUMN_COLLAPSED_KEY, next ? '1' : '0');
+        } catch {
+          // ignore disabled storage
+        }
+        return { sessionColumnCollapsed: next };
+      });
+    },
     currentSessionId: null,
     currentSessionMachineId: null,
     currentSessionMeta: null,
