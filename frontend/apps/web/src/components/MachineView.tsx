@@ -329,7 +329,10 @@ function SessionRow({
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commitRename}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') commitRename();
+              // Ignore Enter while an IME composition is in progress.
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                commitRename();
+              }
               if (e.key === 'Escape') setRenaming(false);
             }}
             onClick={(e) => e.stopPropagation()}

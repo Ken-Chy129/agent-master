@@ -38,8 +38,10 @@ export function Composer() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter sends; Shift+Enter inserts a newline.
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Enter sends; Shift+Enter inserts a newline. Enter during IME
+    // composition (e.g. committing pinyin) must not send — isComposing
+    // covers it, keyCode 229 catches Safari's post-compositionend timing.
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
       e.preventDefault();
       void submit();
     }
