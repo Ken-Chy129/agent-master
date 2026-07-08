@@ -140,7 +140,12 @@ function SessionColumn({ machineId }: { machineId: string }) {
           <div className="relative ml-auto">
             <button
               className="rounded-md p-1 text-ink-faint hover:bg-raised hover:text-ink"
-              onClick={() => setHeaderMenu((v) => !v)}
+              onClick={(e) => {
+                // Stop the opening click from reaching the Menu's own
+                // window-level "click outside closes" listener.
+                e.stopPropagation();
+                setHeaderMenu((v) => !v);
+              }}
               title="机器操作"
             >
               <IconDots size={15} />
