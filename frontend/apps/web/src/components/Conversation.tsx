@@ -101,7 +101,6 @@ export function Conversation() {
           </div>
         </div>
         <div className="ml-auto flex flex-none items-center gap-2">
-          <StatusPill runActive={runActive} lastRunState={render.lastRunState} />
           <StreamIndicator status={streamStatus} />
         </div>
       </header>
@@ -134,33 +133,6 @@ export function Conversation() {
       </div>
     </>
   );
-}
-
-function StatusPill({
-  runActive,
-  lastRunState,
-}: {
-  runActive: boolean;
-  lastRunState?: string;
-}) {
-  if (runActive) {
-    return (
-      <span className="flex items-center gap-1.5 rounded-full bg-accent-soft px-2.5 py-0.5 text-[11px] text-accent">
-        <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-accent" />
-        运行中
-      </span>
-    );
-  }
-  // Success needs no badge — a finished transcript speaks for itself.
-  if (lastRunState === 'failed' || lastRunState === 'interrupted') {
-    return (
-      <span className="flex items-center gap-1.5 rounded-full bg-danger-soft px-2.5 py-0.5 text-[11px] text-danger">
-        <span className="h-1.5 w-1.5 rounded-full bg-danger" />
-        {lastRunState === 'failed' ? '运行失败' : '已中断'}
-      </span>
-    );
-  }
-  return null;
 }
 
 /** Shows the SSE connection state only when it's not cleanly open. */
