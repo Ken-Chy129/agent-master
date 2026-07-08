@@ -226,21 +226,21 @@ function ToolGroup({ rows }: { rows: RenderRow[] }) {
     <div className="w-full max-w-[95%] self-start">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1 text-left text-xs text-ink-muted transition-colors hover:bg-raised"
+        className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left text-xs text-ink-muted transition-colors hover:bg-raised"
       >
-        <IconChevronRight
-          size={12}
-          className={`flex-none text-ink-faint transition-transform ${open ? 'rotate-90' : ''}`}
-        />
         <IconTerminal size={13} className="flex-none text-ink-faint" />
-        <span className="truncate">
+        <span className="min-w-0 flex-1 truncate">
           {running ? '正在执行' : '执行了'} {rows.length} 个操作
           <span className="mx-1.5 text-ink-faint">·</span>
           <span className="font-mono text-[11px]">{summary}</span>
         </span>
         {running && (
-          <span className="pulse-dot ml-1 h-1.5 w-1.5 flex-none rounded-full bg-accent" />
+          <span className="pulse-dot h-1.5 w-1.5 flex-none rounded-full bg-accent" />
         )}
+        <IconChevronRight
+          size={12}
+          className={`flex-none text-ink-faint transition-transform ${open ? 'rotate-90' : ''}`}
+        />
       </button>
       {open && (
         <div className="mt-1 ml-[7px] space-y-1 border-l border-border pl-3">
