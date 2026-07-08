@@ -1,12 +1,44 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RecentSession } from '@agent-master/core';
+import { GROUP_MODES, groupSessions, type GroupMode } from '../lib/group.js';
 import { sessionStatus, statusLine, type SessionStatus } from '../lib/status.js';
 import { relTime } from '../lib/time.js';
 import { EMPTY_RUNTIME, useStore } from '../store.js';
 import { Composer } from './Composer.js';
 import { Conversation } from './Conversation.js';
-import { IconDots, IconPencil, IconPlus, IconSearch, IconTrash, IconX } from './icons.js';
+import {
+  IconChevronRight,
+  IconDots,
+  IconPencil,
+  IconPlus,
+  IconSearch,
+  IconTrash,
+  IconX,
+} from './icons.js';
 import { NewSessionModal } from './NewSessionModal.js';
+
+const GROUP_MODE_KEY = 'agent-master.groupMode';
+const COLLAPSED_KEY = 'agent-master.collapsedGroups';
+
+function loadGroupMode(): GroupMode {
+  try {
+    const v = localStorage.getItem(GROUP_MODE_KEY);
+    if (v === 'project' || v === 'updated' || v === 'created') return v;
+  } catch {
+    /* ignore */
+  }
+  return 'project';
+}
+
+function loadCollapsed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEY);
+    if (raw) return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    /* ignore */
+  }
+  return new Set();
+}
 
 /** One machine's workspace: session list column + the open conversation. */
 export function MachineView() {
@@ -24,7 +56,9 @@ export function MachineView() {
             <Composer />
           </>
         ) : (
-          <div className="m-auto text-sm text-ink-muted">选择一个会话，或新建一个。</div>
+          <div className="m-auto text-center text-sm text-ink-muted">
+            <p>选择一个会话，或新建一个。</p>
+          </div>
         )}
       </main>
     </div>
@@ -40,10 +74,36 @@ function SessionColumn({ machineId }: { machineId: string }) {
   const removeMachine = useStore((s) => s.removeMachine);
 
   const [query, setQuery] = useState('');
-  const [showNew, setShowNew] = useState(false);
+  const [groupMode, setGroupMode] = useState<GroupMode>(loadGroupMode);
+  const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
+  const [newSession, setNewSession] = useState<{ initialDir?: string } | null>(null);
   const [headerMenu, setHeaderMenu] = useState(false);
 
-  const sessions = useMemo(() => {
+  const changeGroupMode = (m: GroupMode) => {
+    setGroupMode(m);
+    try {
+      localStorage.setItem(GROUP_MODE_KEY, m);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const toggleGroup = (key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      const full = `${machineId}:${key}`;
+      if (next.has(full)) next.delete(full);
+      else next.add(full);
+      try {
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = q
       ? runtime.sessions.filter(
@@ -51,24 +111,17 @@ function SessionColumn({ machineId }: { machineId: string }) {
             s.title.toLowerCase().includes(q) || s.lastPreview.toLowerCase().includes(q),
         )
       : runtime.sessions;
-    // Triage order: attention, running, then the rest by recency.
-    const rank: Record<SessionStatus, number> = { attention: 0, running: 1, idle: 2 };
-    return [...list].sort((a, b) => {
-      const ra = rank[sessionStatus(a, seenSeq[a.id])];
-      const rb = rank[sessionStatus(b, seenSeq[b.id])];
-      if (ra !== rb) return ra - rb;
-      return b.updatedAt.localeCompare(a.updatedAt);
-    });
-  }, [runtime.sessions, query, seenSeq]);
+    return groupSessions(list, groupMode);
+  }, [runtime.sessions, query, groupMode]);
 
   if (!machine) return null;
   const claudeAvailable = runtime.info?.providers?.claude?.available;
 
   return (
-    <aside className="flex w-60 flex-none flex-col border-r border-border bg-surface">
-      <div className="border-b border-border p-3">
+    <aside className="flex w-[268px] flex-none flex-col border-r border-border bg-surface">
+      <div className="px-3 pt-3 pb-2">
         <div className="flex items-center gap-1.5">
-          <span className="truncate text-sm font-semibold">{machine.name}</span>
+          <span className="truncate text-[13px] font-semibold">{machine.name}</span>
           <span
             className={`h-2 w-2 flex-none rounded-full ${
               runtime.online === null
@@ -109,60 +162,121 @@ function SessionColumn({ machineId }: { machineId: string }) {
             )}
           </div>
         </div>
-        <div className="mt-1 truncate font-mono text-[10.5px] text-ink-faint" title={machine.baseUrl}>
+        <div
+          className="mt-0.5 truncate font-mono text-[10px] text-ink-faint"
+          title={machine.baseUrl}
+        >
           {machine.baseUrl}
         </div>
-        <div className="relative mt-2">
-          <IconSearch size={13} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-ink-faint" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索会话"
-            className="w-full rounded-lg border border-border bg-canvas py-1.5 pr-7 pl-8 text-xs outline-none placeholder:text-ink-faint focus:border-accent"
-          />
-          {query && (
-            <button
-              onClick={() => setQuery('')}
-              className="absolute top-1/2 right-2 -translate-y-1/2 text-ink-faint hover:text-ink"
-            >
-              <IconX size={12} />
-            </button>
-          )}
+
+        <div className="mt-2.5 flex items-center gap-1.5">
+          <div className="relative flex-1">
+            <IconSearch
+              size={13}
+              className="absolute top-1/2 left-2.5 -translate-y-1/2 text-ink-faint"
+            />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索会话"
+              className="w-full rounded-lg border border-border bg-canvas py-1.5 pr-6 pl-7.5 text-xs outline-none placeholder:text-ink-faint focus:border-accent"
+            />
+            {query && (
+              <button
+                onClick={() => setQuery('')}
+                className="absolute top-1/2 right-2 -translate-y-1/2 text-ink-faint hover:text-ink"
+              >
+                <IconX size={12} />
+              </button>
+            )}
+          </div>
+          <select
+            value={groupMode}
+            onChange={(e) => changeGroupMode(e.target.value as GroupMode)}
+            title="归类方式"
+            className="rounded-lg border border-border bg-canvas py-1.5 pl-2 text-[11px] text-ink-muted outline-none focus:border-accent"
+          >
+            {GROUP_MODES.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto pb-2">
         {runtime.sessionsLoading && runtime.sessions.length === 0 && (
           <div className="p-4 text-center text-xs text-ink-muted">加载中…</div>
         )}
-        {!runtime.sessionsLoading && sessions.length === 0 && (
+        {!runtime.sessionsLoading && groups.length === 0 && (
           <div className="p-4 text-center text-xs text-ink-muted">
             {query ? '没有匹配的会话。' : '还没有会话。'}
           </div>
         )}
-        {sessions.map((s) => (
-          <SessionRow
-            key={s.id}
-            machineId={machineId}
-            session={s}
-            status={sessionStatus(s, seenSeq[s.id])}
-            active={s.id === currentSessionId}
-            onOpen={() => void openSession(machineId, s.id)}
-          />
-        ))}
+        {groups.map((g) => {
+          const isCollapsed = collapsed.has(`${machineId}:${g.key}`);
+          return (
+            <div key={g.key} className="mt-1.5">
+              <div
+                className="group/header flex cursor-pointer items-center gap-1 px-2 py-1 select-none"
+                title={g.dir}
+                onClick={() => toggleGroup(g.key)}
+              >
+                <IconChevronRight
+                  size={11}
+                  className={`flex-none text-ink-faint transition-transform ${
+                    isCollapsed ? '' : 'rotate-90'
+                  }`}
+                />
+                <span className="truncate text-[11px] font-medium text-ink-muted">{g.label}</span>
+                <span className="flex-none text-[10px] text-ink-faint">{g.sessions.length}</span>
+                {groupMode === 'project' && g.dir && (
+                  <button
+                    title={`在 ${g.label} 新建会话`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setNewSession({ initialDir: g.dir });
+                    }}
+                    className="ml-auto rounded-md p-0.5 text-ink-faint opacity-0 group-hover/header:opacity-100 hover:bg-raised hover:text-ink"
+                  >
+                    <IconPlus size={13} />
+                  </button>
+                )}
+              </div>
+              {!isCollapsed &&
+                g.sessions.map((s) => (
+                  <SessionRow
+                    key={s.id}
+                    machineId={machineId}
+                    session={s}
+                    status={sessionStatus(s, seenSeq[s.id])}
+                    active={s.id === currentSessionId}
+                    onOpen={() => void openSession(machineId, s.id)}
+                  />
+                ))}
+            </div>
+          );
+        })}
       </div>
 
-      <div className="border-t border-border p-3">
+      <div className="border-t border-border p-2.5">
         <button
-          onClick={() => setShowNew(true)}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent py-2 text-xs font-medium text-on-accent transition-opacity hover:opacity-90"
+          onClick={() => setNewSession({})}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border py-1.5 text-xs font-medium text-ink-muted transition-colors hover:border-border-strong hover:bg-raised hover:text-ink"
         >
           <IconPlus size={13} />
           新会话
         </button>
       </div>
 
-      {showNew && <NewSessionModal machineId={machineId} onClose={() => setShowNew(false)} />}
+      {newSession && (
+        <NewSessionModal
+          machineId={machineId}
+          initialDir={newSession.initialDir}
+          onClose={() => setNewSession(null)}
+        />
+      )}
     </aside>
   );
 }
@@ -198,23 +312,13 @@ function SessionRow({
     if (title && title !== session.title) void renameSession(machineId, session.id, title);
   };
 
-  const dot =
-    status === 'running' ? (
-      <span className="pulse-dot mt-1.5 h-2 w-2 flex-none rounded-full bg-accent" />
-    ) : status === 'attention' ? (
-      <span className="mt-1.5 h-2 w-2 flex-none rounded-full bg-warn-solid" />
-    ) : (
-      <span className="mt-1.5 h-2 w-2 flex-none rounded-full bg-border-strong" />
-    );
-
   return (
     <div
-      className={`group relative flex cursor-pointer gap-2 border-b border-border px-3 py-2.5 transition-colors ${
-        active ? 'border-l-2 border-l-accent bg-raised pl-2.5' : 'hover:bg-raised'
+      className={`group relative mx-1.5 flex cursor-pointer gap-2 rounded-lg px-2 py-1.5 transition-colors ${
+        active ? 'bg-raised' : 'hover:bg-raised/60'
       }`}
       onClick={onOpen}
     >
-      {dot}
       <div className="min-w-0 flex-1">
         {renaming ? (
           <input
@@ -230,24 +334,36 @@ function SessionRow({
             className="w-full rounded border border-accent bg-surface px-1.5 py-0.5 text-xs outline-none"
           />
         ) : (
-          <div className="flex items-baseline gap-2">
-            <span className="truncate text-[12.5px] font-medium">
+          <div className="flex items-center gap-1.5">
+            {status === 'running' && (
+              <span className="pulse-dot h-1.5 w-1.5 flex-none rounded-full bg-accent" />
+            )}
+            {status === 'attention' && (
+              <span className="h-1.5 w-1.5 flex-none rounded-full bg-warn-solid" />
+            )}
+            <span
+              className={`truncate text-[12.5px] ${
+                active ? 'font-medium text-ink' : 'text-ink'
+              }`}
+            >
               {session.title || '（未命名）'}
             </span>
-            <span className="ml-auto flex-none text-[10px] text-ink-faint">
+            <span className="ml-auto flex-none text-[10px] text-ink-faint group-hover:hidden">
               {relTime(session.updatedAt)}
             </span>
           </div>
         )}
-        <div className="mt-0.5 truncate text-[11px] text-ink-muted">
-          {statusLine(session, status)}
-        </div>
+        {statusLine(session, status) && (
+          <div className="mt-px truncate text-[11px] text-ink-faint">
+            {statusLine(session, status)}
+          </div>
+        )}
       </div>
 
-      <div className="relative flex-none self-center">
+      <div className="absolute top-1.5 right-1.5">
         <button
-          className={`rounded-md p-1 text-ink-faint hover:bg-surface hover:text-ink ${
-            menu ? '' : 'opacity-0 group-hover:opacity-100'
+          className={`rounded-md p-0.5 text-ink-faint hover:bg-surface hover:text-ink ${
+            menu ? '' : 'hidden group-hover:block'
           }`}
           onClick={(e) => {
             e.stopPropagation();
@@ -274,7 +390,9 @@ function SessionRow({
               label="删除"
               onClick={() => {
                 setMenu(false);
-                if (window.confirm(`删除会话「${session.title || '（未命名）'}」？此操作不可恢复。`)) {
+                if (
+                  window.confirm(`删除会话「${session.title || '（未命名）'}」？此操作不可恢复。`)
+                ) {
                   void deleteSession(machineId, session.id);
                 }
               }}

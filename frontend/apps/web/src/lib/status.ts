@@ -22,5 +22,5 @@ export function statusLine(s: RecentSession, status: SessionStatus): string {
     if (s.lastRunState === 'interrupted') return '已中断，等待你的下一步指示';
     return s.lastPreview || '有新回复';
   }
-  return s.lastPreview || '—';
+  return s.lastPreview;
 }

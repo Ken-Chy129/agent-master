@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { MachineProfile, RecentSession } from '@agent-master/core';
+import { projectName } from '../lib/group.js';
 import { sessionStatus, statusLine } from '../lib/status.js';
 import { relTime, within24h } from '../lib/time.js';
 import { EMPTY_RUNTIME, useStore } from '../store.js';
@@ -218,14 +219,24 @@ function SessionRow({
           <span className="flex-none rounded-full border border-border bg-raised px-2 py-px font-mono text-[10.5px] text-ink-muted">
             {machine.name}
           </span>
+          {session.workspaceDir && (
+            <span
+              className="flex-none font-mono text-[10.5px] text-ink-faint"
+              title={session.workspaceDir}
+            >
+              {projectName(session.workspaceDir)}
+            </span>
+          )}
         </div>
-        <div
-          className={`mt-0.5 truncate text-xs ${
-            kind === 'attention' && failed ? 'text-danger' : 'text-ink-muted'
-          }`}
-        >
-          {line}
-        </div>
+        {line && (
+          <div
+            className={`mt-0.5 truncate text-xs ${
+              kind === 'attention' && failed ? 'text-danger' : 'text-ink-muted'
+            }`}
+          >
+            {line}
+          </div>
+        )}
       </div>
       <span className="flex-none text-[11px] text-ink-faint">{relTime(session.updatedAt)}</span>
     </button>

@@ -81,7 +81,7 @@ function MachineAvatar({
       onClick={onClick}
       className={`relative flex h-10 w-10 items-center justify-center rounded-xl text-[11px] font-semibold transition-all ${
         active
-          ? 'bg-accent text-on-accent'
+          ? 'bg-accent-soft text-accent ring-2 ring-accent'
           : 'bg-raised text-ink-muted hover:text-ink'
       } ${online === false ? 'opacity-50' : ''}`}
     >

@@ -12,13 +12,16 @@ const MODEL_OPTIONS = [
 
 /**
  * Modal to create a session: pick a machine (when not fixed), browse its
- * filesystem for a workspace directory, optionally set title and model.
+ * filesystem for a workspace directory (starting from `initialDir` when
+ * given, e.g. quick-create from a project group), optionally set title/model.
  */
 export function NewSessionModal({
   machineId,
+  initialDir,
   onClose,
 }: {
   machineId?: string;
+  initialDir?: string;
   onClose: () => void;
 }) {
   const machines = useStore((s) => s.machines);
@@ -47,7 +50,7 @@ export function NewSessionModal({
 
   useEffect(() => {
     setListing(null);
-    void browse(undefined);
+    void browse(initialDir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMachine]);
 
