@@ -87,7 +87,7 @@ export function Conversation() {
       </header>
 
       <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
-        <div className="mx-auto flex max-w-3xl flex-col gap-4">
+        <div className="mx-auto flex max-w-[52rem] flex-col gap-4">
           {connecting && <div className="py-10 text-center text-sm text-ink-muted">加载中…</div>}
           {!connecting && render.rows.length === 0 && (
             <div className="py-14 text-center">
@@ -158,7 +158,7 @@ function Row({ row }: { row: RenderRow }) {
   switch (row.kind) {
     case 'user':
       return (
-        <div className="max-w-[75%] self-end rounded-2xl rounded-br-md bg-raised px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap">
+        <div className="max-w-[75%] self-end rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap">
           {row.text}
         </div>
       );

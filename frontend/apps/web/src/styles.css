@@ -115,8 +115,8 @@ body {
 
 /* Markdown body (assistant messages). Scoped so chrome text stays untouched. */
 .md {
-  font-size: 15px;
-  line-height: 1.75;
+  font-size: 14px;
+  line-height: 1.7;
   word-break: break-word;
 }
 .md > :first-child {
@@ -126,7 +126,7 @@ body {
   margin-bottom: 0;
 }
 .md p {
-  margin: 0.6em 0;
+  margin: 0.55em 0;
 }
 .md h1,
 .md h2,
@@ -178,7 +178,7 @@ body {
   background: transparent;
   border: none;
   padding: 0;
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.65;
 }
 .md a {

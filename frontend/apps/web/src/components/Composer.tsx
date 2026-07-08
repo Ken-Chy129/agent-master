@@ -47,7 +47,7 @@ export function Composer() {
 
   return (
     <div className="px-5 pb-4">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-[52rem]">
         <div className="rounded-2xl border border-border bg-surface shadow-sm transition-colors focus-within:border-accent">
           <textarea
             ref={taRef}
@@ -59,7 +59,7 @@ export function Composer() {
             onKeyDown={onKeyDown}
             placeholder="描述要交给 agent 的任务…"
             rows={1}
-            className="block max-h-50 min-h-[76px] w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] leading-relaxed outline-none placeholder:text-ink-faint"
+            className="block max-h-50 min-h-[72px] w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-sm leading-relaxed outline-none placeholder:text-ink-faint"
           />
           <div className="flex items-center gap-2 px-3 pb-2.5">
             <span className="flex items-center gap-1.5 text-[11px] text-ink-faint">
