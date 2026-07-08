@@ -118,7 +118,7 @@ body {
    Tailwind text-* utilities used on user bubbles — mixing px here makes the
    two drift apart whenever the user changes their browser font size. */
 .md {
-  font-size: 0.875rem;
+  font-size: 1rem;
   line-height: 1.7;
   word-break: break-word;
 }
@@ -181,7 +181,7 @@ body {
   background: transparent;
   border: none;
   padding: 0;
-  font-size: 0.75rem;
+  font-size: 0.8em;
   line-height: 1.65;
 }
 .md a {

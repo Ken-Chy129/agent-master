@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RenderRow } from '@agent-master/core';
 import { copyText } from '../lib/copy.js';
+import { hhmm } from '../lib/time.js';
 import { EMPTY_RENDER, useStore } from '../store.js';
 import { IconCheck, IconChevronRight, IconCopy, IconPanelLeft, IconTerminal } from './icons.js';
 import { Markdown } from './Markdown.js';
@@ -158,12 +159,15 @@ function Row({ row }: { row: RenderRow }) {
   switch (row.kind) {
     case 'user':
       return (
-        <div className="max-w-[75%] self-end rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-sm leading-[1.7] whitespace-pre-wrap">
+        <div
+          className="max-w-[75%] self-end rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-base leading-[1.7] whitespace-pre-wrap"
+          title={row.createdAt ? hhmm(row.createdAt) : undefined}
+        >
           {row.text}
         </div>
       );
     case 'assistant':
-      return <AssistantRow text={row.text ?? ''} />;
+      return <AssistantRow text={row.text ?? ''} createdAt={row.createdAt} />;
     case 'error':
       return (
         <div className="self-center rounded-lg border border-danger/50 bg-danger-soft px-3 py-1.5 text-xs text-danger">
@@ -175,14 +179,15 @@ function Row({ row }: { row: RenderRow }) {
   }
 }
 
-function AssistantRow({ text }: { text: string }) {
+function AssistantRow({ text, createdAt }: { text: string; createdAt?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="group relative max-w-[95%] self-start">
       <Markdown text={text} />
-      <div className="absolute -bottom-[22px] left-0 flex items-center opacity-0 transition-opacity group-hover:opacity-100">
+      {/* whitespace-nowrap + flex-none keep the bar intact even when the
+          message itself is only a couple of characters wide. */}
+      <div className="absolute -bottom-[22px] left-0 flex items-center gap-2 whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100">
         <button
-          title="复制"
           onClick={() => {
             void copyText(text).then((ok) => {
               if (ok) {
@@ -191,11 +196,12 @@ function AssistantRow({ text }: { text: string }) {
               }
             });
           }}
-          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-faint hover:bg-raised hover:text-ink"
+          className="flex flex-none items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-faint hover:bg-raised hover:text-ink"
         >
           {copied ? <IconCheck size={12} className="text-success" /> : <IconCopy size={12} />}
           {copied ? '已复制' : '复制'}
         </button>
+        {createdAt && <span className="flex-none text-[11px] text-ink-faint">{hhmm(createdAt)}</span>}
       </div>
     </div>
   );

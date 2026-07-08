@@ -171,6 +171,7 @@ export interface RenderRow {
   input?: unknown; // tool
   output?: unknown; // tool (present once the result lands)
   status?: 'running' | 'done'; // tool
+  createdAt?: string; // RFC3339, from the originating event
 }
 
 /**

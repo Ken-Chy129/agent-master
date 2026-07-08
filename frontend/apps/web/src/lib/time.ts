@@ -10,6 +10,13 @@ export function relTime(iso: string): string {
   return new Date(t).toLocaleDateString();
 }
 
+/** Clock time (HH:MM) for message meta rows. */
+export function hhmm(iso: string): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '';
+  return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
 /** Whether the timestamp is within the last 24 hours (overview "recently done" cutoff). */
 export function within24h(iso: string): boolean {
   const t = Date.parse(iso);
