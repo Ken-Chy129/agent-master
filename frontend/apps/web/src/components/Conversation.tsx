@@ -214,12 +214,13 @@ function CopyButton({ text }: { text: string }) {
 
 function UserRow({ text, createdAt }: { text: string; createdAt?: string }) {
   return (
-    <div className="group relative max-w-[75%] self-end">
+    <div className="group flex max-w-[75%] flex-col items-end self-end">
       <div className="rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-base leading-[1.7] whitespace-pre-wrap">
         {text}
       </div>
-      {/* Hover-revealed, right-aligned; absolute so it costs no layout space. */}
-      <div className="absolute right-0 -bottom-[22px] flex items-center gap-2 whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100">
+      {/* In-flow so the gap is reserved and the hover reveal never overlaps
+          the next message. */}
+      <div className="mt-0.5 flex h-5 items-center gap-2 whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100">
         {createdAt && <span className="flex-none text-[11px] text-ink-faint">{hhmm(createdAt)}</span>}
         <CopyButton text={text} />
       </div>
