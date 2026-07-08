@@ -1,0 +1,99 @@
+import type { MachineProfile } from '@agent-master/core';
+import { EMPTY_RUNTIME, useStore } from '../store.js';
+import { IconGrid, IconPlus } from './icons.js';
+
+/** Short uppercase initials for a machine avatar, e.g. "dev-01" -> "DEV". */
+export function machineInitials(name: string): string {
+  const clean = name.replace(/[^\p{L}\p{N}]/gu, '');
+  return (clean || '?').slice(0, 3).toUpperCase();
+}
+
+/**
+ * The far-left machine rail: overview entry, one avatar per machine (online
+ * dot + active-run badge), and "add machine".
+ */
+export function Rail({ onAddMachine }: { onAddMachine: () => void }) {
+  const machines = useStore((s) => s.machines);
+  const runtimes = useStore((s) => s.runtimes);
+  const view = useStore((s) => s.view);
+  const activeMachineId = useStore((s) => s.activeMachineId);
+  const openOverview = useStore((s) => s.openOverview);
+  const openMachine = useStore((s) => s.openMachine);
+
+  return (
+    <nav className="flex w-[58px] flex-none flex-col items-center gap-2 border-r border-border bg-surface py-3">
+      <button
+        title="任务总览"
+        onClick={openOverview}
+        className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${
+          view === 'overview'
+            ? 'bg-accent-soft text-accent'
+            : 'text-ink-muted hover:bg-raised hover:text-ink'
+        }`}
+      >
+        <IconGrid size={19} />
+      </button>
+
+      <div className="my-1 w-6 border-t border-border" />
+
+      {machines.map((m) => (
+        <MachineAvatar
+          key={m.id}
+          machine={m}
+          active={view === 'machine' && activeMachineId === m.id}
+          onClick={() => openMachine(m.id)}
+          runningCount={
+            (runtimes[m.id] ?? EMPTY_RUNTIME).sessions.filter((s) => s.activeRunId).length
+          }
+          online={(runtimes[m.id] ?? EMPTY_RUNTIME).online}
+        />
+      ))}
+
+      <button
+        title="添加机器"
+        onClick={onAddMachine}
+        className="flex h-10 w-10 items-center justify-center rounded-xl border border-dashed border-border-strong text-ink-muted transition-colors hover:border-accent hover:text-accent"
+      >
+        <IconPlus size={17} />
+      </button>
+    </nav>
+  );
+}
+
+function MachineAvatar({
+  machine,
+  active,
+  online,
+  runningCount,
+  onClick,
+}: {
+  machine: MachineProfile;
+  active: boolean;
+  online: boolean | null;
+  runningCount: number;
+  onClick: () => void;
+}) {
+  const dotColor =
+    online === null ? 'bg-ink-faint' : online ? 'bg-success' : 'bg-ink-faint';
+  return (
+    <button
+      title={`${machine.name}${online === false ? '（离线）' : ''}`}
+      onClick={onClick}
+      className={`relative flex h-10 w-10 items-center justify-center rounded-xl text-[11px] font-semibold transition-all ${
+        active
+          ? 'bg-accent text-on-accent'
+          : 'bg-raised text-ink-muted hover:text-ink'
+      } ${online === false ? 'opacity-50' : ''}`}
+    >
+      {machineInitials(machine.name)}
+      <span
+        className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface ${dotColor}`}
+      />
+      {runningCount > 0 && (
+        <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-on-accent">
+          {runningCount}
+        </span>
+      )}
+    </button>
+  );
+}

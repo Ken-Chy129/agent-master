@@ -1,4 +1,5 @@
 import { fileURLToPath, URL } from 'node:url';
+import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
@@ -16,7 +17,7 @@ export default defineConfig({
   // loads it over file:// (absolute "/assets/..." would resolve to the disk
   // root there and 404, leaving a blank window). Safe for dev and web hosting.
   base: './',
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       // Resolve the workspace core package to its TS source for HMR + typing.

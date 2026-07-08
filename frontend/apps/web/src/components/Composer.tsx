@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../store.js';
+import { IconSend } from './icons.js';
 
 export function Composer() {
   const sendMessage = useStore((s) => s.sendMessage);
@@ -30,18 +31,24 @@ export function Composer() {
   };
 
   return (
-    <div className="composer">
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={onKeyDown}
-        placeholder={runActive ? 'Run in progress…' : 'Message  (Enter to send, Shift+Enter for newline)'}
-        rows={1}
-        disabled={disabled}
-      />
-      <div className="actions">
-        <button className="primary" onClick={() => void submit()} disabled={disabled || !text.trim()}>
-          {sending ? 'Sending…' : 'Send'}
+    <div className="border-t border-border bg-surface px-4 py-3">
+      <div className="mx-auto flex max-w-2xl items-end gap-2">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder={runActive ? '运行中…（可点上方「中断」）' : '发消息，Enter 发送，Shift+Enter 换行'}
+          rows={1}
+          disabled={disabled}
+          className="max-h-40 min-h-10 flex-1 resize-none rounded-xl border border-border bg-canvas px-3.5 py-2.5 text-sm outline-none placeholder:text-ink-faint focus:border-accent disabled:opacity-60"
+        />
+        <button
+          onClick={() => void submit()}
+          disabled={disabled || !text.trim()}
+          title="发送"
+          className="flex h-10 w-10 flex-none items-center justify-center rounded-xl bg-accent text-on-accent transition-opacity hover:opacity-90 disabled:opacity-40"
+        >
+          <IconSend size={16} />
         </button>
       </div>
     </div>

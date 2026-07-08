@@ -55,6 +55,33 @@ class DesktopMachineStore implements MachineStore {
 
 let cached: MachineStore | null = null;
 
+const SEEN_KEY = 'agent-master.seenSeq';
+
+/**
+ * Per-session "last seen seq" marks, used to derive the needs-attention state
+ * (agent replied and the user hasn't looked yet). Not a secret, so plain
+ * localStorage is fine on both web and desktop.
+ */
+export function loadSeenSeq(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(SEEN_KEY);
+    if (!raw) return {};
+    const p = JSON.parse(raw) as unknown;
+    if (p && typeof p === 'object') return p as Record<string, number>;
+  } catch {
+    // ignore malformed / disabled storage
+  }
+  return {};
+}
+
+export function saveSeenSeq(map: Record<string, number>): void {
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify(map));
+  } catch {
+    // ignore quota / disabled storage
+  }
+}
+
 /** The active machine-store backend: OS secure store on desktop, else localStorage. */
 export function machineStore(): MachineStore {
   if (!cached) {
