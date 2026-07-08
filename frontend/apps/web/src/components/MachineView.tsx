@@ -9,16 +9,19 @@ import { Conversation } from './Conversation.js';
 import {
   IconChevronRight,
   IconDots,
+  IconPanelLeft,
   IconPencil,
   IconPlus,
   IconSearch,
   IconTrash,
   IconX,
 } from './icons.js';
+import { Menu, MenuItem } from './Menu.js';
 import { NewSessionModal } from './NewSessionModal.js';
 
 const GROUP_MODE_KEY = 'agent-master.groupMode';
 const COLLAPSED_KEY = 'agent-master.collapsedGroups';
+const COLUMN_COLLAPSED_KEY = 'agent-master.sessionColumnCollapsed';
 
 function loadGroupMode(): GroupMode {
   try {
@@ -40,15 +43,45 @@ function loadCollapsed(): Set<string> {
   return new Set();
 }
 
-/** One machine's workspace: session list column + the open conversation. */
+/** One machine's workspace: session list column (collapsible) + the open conversation. */
 export function MachineView() {
   const machineId = useStore((s) => s.activeMachineId);
   const currentSessionId = useStore((s) => s.currentSessionId);
 
+  const [columnCollapsed, setColumnCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(COLUMN_COLLAPSED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleColumn = () => {
+    setColumnCollapsed((v) => {
+      try {
+        localStorage.setItem(COLUMN_COLLAPSED_KEY, v ? '0' : '1');
+      } catch {
+        /* ignore */
+      }
+      return !v;
+    });
+  };
+
   if (!machineId) return null;
   return (
     <div className="flex min-w-0 flex-1">
-      <SessionColumn machineId={machineId} />
+      {columnCollapsed ? (
+        <div className="flex w-9 flex-none flex-col items-center border-r border-border bg-surface pt-3">
+          <button
+            title="展开会话列表"
+            onClick={toggleColumn}
+            className="rounded-md p-1 text-ink-faint hover:bg-raised hover:text-ink"
+          >
+            <IconPanelLeft size={15} />
+          </button>
+        </div>
+      ) : (
+        <SessionColumn machineId={machineId} onCollapse={toggleColumn} />
+      )}
       <main className="flex min-w-0 flex-1 flex-col bg-canvas">
         {currentSessionId ? (
           <>
@@ -65,19 +98,23 @@ export function MachineView() {
   );
 }
 
-function SessionColumn({ machineId }: { machineId: string }) {
+function SessionColumn({
+  machineId,
+  onCollapse,
+}: {
+  machineId: string;
+  onCollapse: () => void;
+}) {
   const machine = useStore((s) => s.machines.find((m) => m.id === machineId) ?? null);
   const runtime = useStore((s) => s.runtimes[machineId] ?? EMPTY_RUNTIME);
   const seenSeq = useStore((s) => s.seenSeq);
   const currentSessionId = useStore((s) => s.currentSessionId);
   const openSession = useStore((s) => s.openSession);
-  const removeMachine = useStore((s) => s.removeMachine);
 
   const [query, setQuery] = useState('');
   const [groupMode, setGroupMode] = useState<GroupMode>(loadGroupMode);
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
   const [newSession, setNewSession] = useState<{ initialDir?: string } | null>(null);
-  const [headerMenu, setHeaderMenu] = useState(false);
 
   const changeGroupMode = (m: GroupMode) => {
     setGroupMode(m);
@@ -137,35 +174,13 @@ function SessionColumn({ machineId }: { machineId: string }) {
               claude ✗
             </span>
           )}
-          <div className="relative ml-auto">
-            <button
-              className="rounded-md p-1 text-ink-faint hover:bg-raised hover:text-ink"
-              onClick={(e) => {
-                // Stop the opening click from reaching the Menu's own
-                // window-level "click outside closes" listener.
-                e.stopPropagation();
-                setHeaderMenu((v) => !v);
-              }}
-              title="机器操作"
-            >
-              <IconDots size={15} />
-            </button>
-            {headerMenu && (
-              <Menu onClose={() => setHeaderMenu(false)}>
-                <MenuItem
-                  danger
-                  icon={<IconTrash size={13} />}
-                  label="移除机器"
-                  onClick={() => {
-                    setHeaderMenu(false);
-                    if (window.confirm(`移除机器「${machine.name}」？（不影响机器上的数据）`)) {
-                      void removeMachine(machine.id);
-                    }
-                  }}
-                />
-              </Menu>
-            )}
-          </div>
+          <button
+            className="ml-auto rounded-md p-1 text-ink-faint hover:bg-raised hover:text-ink"
+            onClick={onCollapse}
+            title="收起会话列表"
+          >
+            <IconPanelLeft size={15} />
+          </button>
         </div>
         <div
           className="mt-0.5 truncate font-mono text-[10px] text-ink-faint"
@@ -409,43 +424,3 @@ function SessionRow({
   );
 }
 
-/** Tiny anchored dropdown; closes on any outside click. */
-function Menu({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  useEffect(() => {
-    const close = () => onClose();
-    window.addEventListener('click', close);
-    return () => window.removeEventListener('click', close);
-  }, [onClose]);
-  return (
-    <div
-      className="absolute right-0 z-30 mt-1 w-32 overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-lg"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {children}
-    </div>
-  );
-}
-
-function MenuItem({
-  icon,
-  label,
-  danger,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  danger?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-raised ${
-        danger ? 'text-danger' : 'text-ink'
-      }`}
-      onClick={onClick}
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}

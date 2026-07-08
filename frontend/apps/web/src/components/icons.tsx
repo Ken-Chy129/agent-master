@@ -129,6 +129,15 @@ export function IconTerminal({ size, className }: IconProps) {
   );
 }
 
+export function IconPanelLeft({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className} aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M9 4v16" />
+    </svg>
+  );
+}
+
 export function IconAlert({ size, className }: IconProps) {
   return (
     <svg {...base(size)} className={className} aria-hidden="true">
