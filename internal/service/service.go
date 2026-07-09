@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/Ken-Chy129/agent-master/internal/config"
 )
 
 const (
@@ -186,6 +188,16 @@ func installLaunchd(exe string) error {
 	if err := os.MkdirAll(filepath.Dir(plistPath), 0o755); err != nil {
 		return err
 	}
+	// Capture the daemon's stdout/stderr (slog output, panic traces) to a log
+	// file; without these keys launchd sends both to /dev/null, so a crash
+	// leaves no trace. Best-effort: omit them if the path can't be resolved.
+	var logKeys string
+	if logPath, err := config.LogPath(); err == nil {
+		logKeys = fmt.Sprintf(
+			"  <key>StandardOutPath</key><string>%s</string>\n"+
+				"  <key>StandardErrorPath</key><string>%s</string>\n",
+			logPath, logPath)
+	}
 	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -202,9 +214,9 @@ func installLaunchd(exe string) error {
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-</dict>
+%s</dict>
 </plist>
-`, macLabel, exe, servicePATH())
+`, macLabel, exe, servicePATH(), logKeys)
 	if err := os.WriteFile(plistPath, []byte(plist), 0o644); err != nil {
 		return err
 	}

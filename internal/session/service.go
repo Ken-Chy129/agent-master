@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 
@@ -263,27 +264,92 @@ func (s *Service) stageImages(sessionID string, uploads []ImageUpload) ([]provid
 	return inputs, meta
 }
 
-// Interrupt cancels a session's active run, if any.
+// Interrupt cancels a session's active run. If this process has no live run for
+// the session but the ledger still shows one running — orphaned by a previous
+// process that died mid-run — it's finalized in place so the stop button works
+// and the session stops showing "running" without waiting for a daemon restart.
 func (s *Service) Interrupt(sessionID string) error {
 	s.mu.Lock()
 	cancel := s.active[sessionID]
 	s.mu.Unlock()
-	if cancel == nil {
+	if cancel != nil {
+		cancel()
 		return nil
 	}
-	cancel()
+	s.finalizeOrphanRun(sessionID)
 	return nil
 }
 
+// finalizeOrphanRun commits run_finished(interrupted) for a session's dangling
+// run (running in the ledger, but with no live cancel in this process). No-op if
+// the session has no running run.
+func (s *Service) finalizeOrphanRun(sessionID string) {
+	runs, err := s.store.RunningRuns()
+	if err != nil {
+		slog.Error("finalize orphan: list running runs", "err", err)
+		return
+	}
+	for _, r := range runs {
+		if r.SessionID != sessionID {
+			continue
+		}
+		s.commit(sessionID, "run_finished", r.ID, map[string]any{"runId": r.ID, "state": runInterrupted})
+		if err := s.store.FinishRun(r.ID, runInterrupted, "interrupted after daemon restart"); err != nil {
+			slog.Error("finalize orphan: finish run", "run", r.ID, "err", err)
+		}
+		if err := s.store.ClearActiveRun(sessionID, runInterrupted); err != nil {
+			slog.Error("finalize orphan: clear active run", "session", sessionID, "err", err)
+		}
+	}
+}
+
 func (s *Service) runProvider(ctx context.Context, cancel context.CancelFunc, sess store.Session, runID, message string, images []provider.ImageInput) {
+	var (
+		res           provider.RunResult
+		runErr        error
+		lastAssistant string
+	)
+
+	// Finalize in a defer so run_finished is committed on every exit path,
+	// including a panic in the provider or an event handler. A dangling run
+	// (run_started with no run_finished) would otherwise leave the session's
+	// tailActivity stuck "running" forever, since render derives activity purely
+	// from the committed ledger — and the run goroutine has no other recover, so
+	// an un-caught panic here would crash the whole daemon.
 	defer func() {
+		if r := recover(); r != nil {
+			runErr = fmt.Errorf("run panicked: %v", r)
+			slog.Error("run panicked", "session", sess.ID, "run", runID, "panic", r,
+				"stack", string(debug.Stack()))
+		}
+
+		state := runDone
+		switch {
+		case errors.Is(runErr, context.Canceled):
+			state = runInterrupted
+			s.commit(sess.ID, "run_finished", runID, map[string]any{"runId": runID, "state": runInterrupted})
+			_ = s.store.FinishRun(runID, runInterrupted, "")
+		case runErr != nil:
+			state = runFailed
+			s.commit(sess.ID, "error", runID, map[string]any{"message": runErr.Error()})
+			s.commit(sess.ID, "run_finished", runID, map[string]any{"runId": runID, "state": runFailed})
+			_ = s.store.FinishRun(runID, runFailed, runErr.Error())
+		default:
+			s.commit(sess.ID, "run_finished", runID, map[string]any{"runId": runID, "state": runDone})
+			_ = s.store.FinishRun(runID, runDone, "")
+		}
+
+		if res.FinalText != "" {
+			lastAssistant = res.FinalText
+		}
+		s.touchRecent(sess.ID, preview(lastAssistant), "", state)
+
 		s.mu.Lock()
 		delete(s.active, sess.ID)
 		s.mu.Unlock()
 		cancel()
 	}()
 
-	var lastAssistant string
 	onEvent := func(e provider.StreamEvent) {
 		switch e.Kind {
 		case provider.KindSystem:
@@ -310,7 +376,7 @@ func (s *Service) runProvider(ctx context.Context, cancel context.CancelFunc, se
 		}
 	}
 
-	res, err := s.prov.Run(ctx, provider.RunOptions{
+	res, runErr = s.prov.Run(ctx, provider.RunOptions{
 		SessionID:       sess.ID,
 		Message:         message,
 		WorkspaceDir:    sess.WorkspaceDir,
@@ -319,27 +385,33 @@ func (s *Service) runProvider(ctx context.Context, cancel context.CancelFunc, se
 		Images:          images,
 		NativeSessionID: sess.NativeSessionID,
 	}, onEvent)
+}
 
-	state := runDone
-	switch {
-	case errors.Is(err, context.Canceled):
-		state = runInterrupted
-		s.commit(sess.ID, "run_finished", runID, map[string]any{"runId": runID, "state": runInterrupted})
-		_ = s.store.FinishRun(runID, runInterrupted, "")
-	case err != nil:
-		state = runFailed
-		s.commit(sess.ID, "error", runID, map[string]any{"message": err.Error()})
-		s.commit(sess.ID, "run_finished", runID, map[string]any{"runId": runID, "state": runFailed})
-		_ = s.store.FinishRun(runID, runFailed, err.Error())
-	default:
-		s.commit(sess.ID, "run_finished", runID, map[string]any{"runId": runID, "state": runDone})
-		_ = s.store.FinishRun(runID, runDone, "")
+// ReconcileStuckRuns finalizes runs left "running" by a previous daemon process
+// (crash, kill, restart, or host sleep mid-run). It runs once at startup before
+// any new run can begin, so every running row is by definition an orphan: a live
+// run holds an in-memory cancel func that does not survive a restart. Each orphan
+// gets a committed run_finished(interrupted) so the conversation's tailActivity
+// settles to idle, plus a projection clear so the session list stops showing it
+// as running.
+func (s *Service) ReconcileStuckRuns() {
+	runs, err := s.store.RunningRuns()
+	if err != nil {
+		slog.Error("reconcile stuck runs", "err", err)
+		return
 	}
-
-	if res.FinalText != "" {
-		lastAssistant = res.FinalText
+	for _, r := range runs {
+		s.commit(r.SessionID, "run_finished", r.ID, map[string]any{"runId": r.ID, "state": runInterrupted})
+		if err := s.store.FinishRun(r.ID, runInterrupted, "daemon restarted mid-run"); err != nil {
+			slog.Error("reconcile: finish run", "run", r.ID, "err", err)
+		}
+		if err := s.store.ClearActiveRun(r.SessionID, runInterrupted); err != nil {
+			slog.Error("reconcile: clear active run", "session", r.SessionID, "err", err)
+		}
 	}
-	s.touchRecent(sess.ID, preview(lastAssistant), "", state)
+	if len(runs) > 0 {
+		slog.Info("reconciled stuck runs from a previous process", "count", len(runs))
+	}
 }
 
 // commit appends an event to the ledger, then broadcasts it (write-then-derive).

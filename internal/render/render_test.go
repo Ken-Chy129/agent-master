@@ -95,3 +95,50 @@ func TestComputeToolResultBeforeCallIsIgnored(t *testing.T) {
 		t.Fatalf("rows = %+v, want just the user row", rs.Rows)
 	}
 }
+
+// A tool_call left without a tool_result when its run ends (interrupted or
+// crashed mid-tool) must not render as forever-"running": once the run is
+// finished, the orphan tool becomes terminal ("incomplete").
+func TestComputeDanglingToolResolvedOnRunFinish(t *testing.T) {
+	events := []store.Event{
+		ev(1, "user_message", `{"text":"go"}`),
+		ev(2, "run_started", `{"runId":"r1"}`),
+		ev(3, "tool_call", `{"name":"Bash","id":"t1","input":{}}`),
+		// no tool_result for t1
+		ev(4, "run_finished", `{"runId":"r1","state":"interrupted"}`),
+	}
+	rs := Compute(events)
+	if rs.TailActivity != "idle" {
+		t.Fatalf("tail = %q, want idle", rs.TailActivity)
+	}
+	if rs.Rows[1].Status != "incomplete" {
+		t.Fatalf("orphan tool status = %q, want incomplete", rs.Rows[1].Status)
+	}
+}
+
+// An orphan tool from a run that ended with no run_finished at all (legacy data
+// from before crash-safe finalization) is still resolved at the idle tail.
+func TestComputeDanglingToolResolvedAtIdleTail(t *testing.T) {
+	events := []store.Event{
+		ev(1, "user_message", `{"text":"a"}`),
+		ev(2, "run_started", `{"runId":"r1"}`),
+		ev(3, "tool_call", `{"name":"Bash","id":"t1","input":{}}`),
+		ev(4, "run_finished", `{"runId":"r1","state":"done"}`),
+		// A second run starts and dies mid-tool with no run_finished.
+		ev(5, "user_message", `{"text":"b"}`),
+		ev(6, "run_started", `{"runId":"r2"}`),
+		ev(7, "tool_call", `{"name":"Read","id":"t2","input":{}}`),
+	}
+	rs := Compute(events)
+	// r2 is still open, so the tail is running and its tool keeps spinning.
+	if rs.TailActivity != "running" {
+		t.Fatalf("tail = %q, want running", rs.TailActivity)
+	}
+	// t1 (from the finished r1) must be terminal, not spinning.
+	if rs.Rows[1].Status != "incomplete" {
+		t.Fatalf("t1 status = %q, want incomplete", rs.Rows[1].Status)
+	}
+	if rs.Rows[3].Status != "running" {
+		t.Fatalf("t2 status = %q, want running", rs.Rows[3].Status)
+	}
+}
