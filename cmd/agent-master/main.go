@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,12 +15,14 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/Ken-Chy129/agent-master/internal/config"
+	"github.com/Ken-Chy129/agent-master/internal/logging"
 	"github.com/Ken-Chy129/agent-master/internal/provider"
 	"github.com/Ken-Chy129/agent-master/internal/server"
 	"github.com/Ken-Chy129/agent-master/internal/service"
@@ -97,6 +100,30 @@ func cmdServe(args []string) error {
 	}
 	if *host != "" {
 		cfg.Host = *host
+	}
+
+	// Own the daemon log in-process: a size-capped rolling file (bounded,
+	// identical across launchd/systemd/Windows), mirrored to stderr so a
+	// foreground `serve` still prints to the terminal. Set this up first so even
+	// startup logs are captured. AGENT_MASTER_DEBUG=1 surfaces the high-volume
+	// per-request access logs (Debug) for troubleshooting.
+	level := slog.LevelInfo
+	if os.Getenv("AGENT_MASTER_DEBUG") != "" {
+		level = slog.LevelDebug
+	}
+	if logPath, lerr := config.LogPath(); lerr == nil {
+		if rw, lerr := logging.NewRollingFile(logPath, 5<<20, 3); lerr == nil {
+			defer rw.Close()
+			slog.SetDefault(slog.New(slog.NewTextHandler(
+				io.MultiWriter(os.Stderr, rw), &slog.HandlerOptions{Level: level})))
+			// Also route panic/fatal stacks here, so a crash leaves a trace even
+			// when the service manager sends stderr to /dev/null.
+			if f := rw.File(); f != nil {
+				_ = debug.SetCrashOutput(f, debug.CrashOptions{})
+			}
+		} else {
+			slog.Warn("open daemon log; logging to stderr only", "err", lerr)
+		}
 	}
 
 	// Import the user's interactive login-shell env (ANTHROPIC_*/CLAUDE_*) so the

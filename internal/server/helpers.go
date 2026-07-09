@@ -41,11 +41,21 @@ func logMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
-		slog.Info("http",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", rec.status,
-			"dur", time.Since(start).String(),
+		// Per-request access logs are high-volume (client polling every ~15s plus
+		// long-lived SSE streams), so successful requests log at Debug — hidden by
+		// default, visible with AGENT_MASTER_DEBUG=1. Failures stay visible.
+		level := slog.LevelDebug
+		switch {
+		case rec.status >= 500:
+			level = slog.LevelWarn
+		case rec.status >= 400:
+			level = slog.LevelInfo
+		}
+		slog.LogAttrs(r.Context(), level, "http",
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Int("status", rec.status),
+			slog.String("dur", time.Since(start).String()),
 		)
 	})
 }
