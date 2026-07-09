@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useEscape } from '../lib/useEscape.js';
 import { useStore } from '../store.js';
 
 const DEFAULT_BASE_URL = 'http://localhost:8888';
@@ -22,6 +23,9 @@ export function ConnectionSetup({
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Esc closes the add-machine modal (only when it's dismissible).
+  useEscape(() => onCancel?.(), asModal);
 
   const canSubmit = baseUrl.trim().length > 0 && token.trim().length > 0 && !busy;
 
@@ -126,7 +130,9 @@ export function ConnectionSetup({
       </div>
     );
   }
-  return <div className="flex h-full items-center justify-center p-4">{form}</div>;
+  // First-run full page: also serves as the window drag region on macOS
+  // (the form itself is excluded from dragging via .app-drag form).
+  return <div className="app-drag flex h-full items-center justify-center p-4">{form}</div>;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

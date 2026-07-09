@@ -4,7 +4,6 @@ import { GROUP_MODES, groupSessions, type GroupMode } from '../lib/group.js';
 import { sessionStatus, statusLine, type SessionStatus } from '../lib/status.js';
 import { relTime } from '../lib/time.js';
 import { EMPTY_RUNTIME, useStore } from '../store.js';
-import { Composer } from './Composer.js';
 import { Conversation } from './Conversation.js';
 import {
   IconChevronRight,
@@ -56,10 +55,7 @@ export function MachineView() {
       {!columnCollapsed && <SessionColumn machineId={machineId} onCollapse={toggleColumn} />}
       <main className="relative flex min-w-0 flex-1 flex-col bg-canvas">
         {currentSessionId ? (
-          <>
-            <Conversation />
-            <Composer />
-          </>
+          <Conversation />
         ) : (
           <>
             {columnCollapsed && (

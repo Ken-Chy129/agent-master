@@ -230,9 +230,12 @@ function createWindow(): void {
     title: 'agent-master',
     // macOS: drop the title bar entirely; the traffic lights float over the
     // UI. Drag regions live in the web UI (-webkit-app-region on the rail
-    // and header bars, behind the .desktop-mac root class).
+    // and header bars, behind the .desktop-mac root class). The lights are
+    // centered over the 72px machine rail (buttons span 52px → x inset 10),
+    // inside its 44px-tall top zone (y = (44 - 12) / 2 = 16); keep these
+    // numbers in sync with `.desktop-mac .am-rail` in apps/web styles.css.
     ...(process.platform === 'darwin'
-      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 10, y: 18 } }
+      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 10, y: 16 } }
       : {}),
     webPreferences: {
       preload: join(__dirname, 'preload.js'),

@@ -2,14 +2,30 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RenderRow } from '@agent-master/core';
 import { copyText } from '../lib/copy.js';
 import { hhmm } from '../lib/time.js';
+import { useEscape } from '../lib/useEscape.js';
 import { EMPTY_RENDER, useStore } from '../store.js';
-import { IconCheck, IconChevronRight, IconCopy, IconPanelLeft, IconTerminal } from './icons.js';
+import type { ImageRef } from '@agent-master/core';
+import { Composer } from './Composer.js';
+import {
+  IconCheck,
+  IconChevronRight,
+  IconCopy,
+  IconImage,
+  IconPanelLeft,
+  IconTerminal,
+  IconX,
+} from './icons.js';
 import { Markdown } from './Markdown.js';
 
 /** Feed item: a plain row, or a run of consecutive tool rows folded together. */
 type FeedItem =
   | { kind: 'row'; row: RenderRow }
   | { kind: 'tools'; id: string; rows: RenderRow[] };
+
+/** Compact elapsed-time label, e.g. "8s" or "6m 7s". */
+function fmtElapsed(s: number): string {
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+}
 
 function groupRows(rows: RenderRow[]): FeedItem[] {
   const items: FeedItem[] = [];
@@ -27,6 +43,10 @@ function groupRows(rows: RenderRow[]): FeedItem[] {
 
 export function Conversation() {
   const currentSessionId = useStore((s) => s.currentSessionId);
+  const currentSessionMachineId = useStore((s) => s.currentSessionMachineId);
+  const machine = useStore((s) =>
+    currentSessionMachineId ? (s.machines.find((m) => m.id === currentSessionMachineId) ?? null) : null,
+  );
   const currentSessionMeta = useStore((s) => s.currentSessionMeta);
   const render = useStore((s) =>
     currentSessionId ? (s.renderBySession[currentSessionId] ?? EMPTY_RENDER) : EMPTY_RENDER,
@@ -66,6 +86,19 @@ export function Conversation() {
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
   }, [render.basedOnSeq, streamingText, currentSessionId]);
 
+  // Elapsed seconds for the active run, so the "thinking" indicator shows the
+  // agent is working during the gap before its first output.
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!runActive) {
+      setElapsed(0);
+      return;
+    }
+    const start = Date.now();
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [runActive]);
+
   const onScroll = () => {
     const el = scrollRef.current;
     if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
@@ -75,6 +108,24 @@ export function Conversation() {
   const toggleColumn = useStore((s) => s.toggleSessionColumn);
 
   const connecting = streamStatus === 'connecting' && render.rows.length === 0;
+
+  // Show a "thinking" hint while a run is active but nothing is streaming and
+  // the tail isn't a running tool (which already shows its own activity) — i.e.
+  // the gap after send before the agent's first visible output.
+  const lastRow = render.rows[render.rows.length - 1];
+  const tailRunningTool = lastRow?.kind === 'tool' && lastRow.status === 'running';
+  const thinking = runActive && !streamingText && !tailRunningTool;
+
+  // Full-size preview shown in an in-app lightbox (not a browser tab).
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  useEscape(() => setLightbox(null), lightbox !== null);
+
+  // Build an authenticated URL for a staged image (token in query so <img> can
+  // load it without an Authorization header).
+  const imgSrc = (file?: string): string | null => {
+    if (!file || !machine || !currentSessionId) return null;
+    return `${machine.baseUrl}/api/sessions/${encodeURIComponent(currentSessionId)}/uploads/${encodeURIComponent(file)}?token=${encodeURIComponent(machine.token)}`;
+  };
 
   return (
     <>
@@ -105,32 +156,75 @@ export function Conversation() {
         </div>
       </header>
 
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-5 pt-6 pb-10 [scrollbar-gutter:stable_both-edges]">
-        <div className="mx-auto flex max-w-[52rem] flex-col gap-4">
-          {connecting && <div className="py-10 text-center text-sm text-ink-muted">加载中…</div>}
-          {!connecting && render.rows.length === 0 && (
-            <div className="py-14 text-center">
-              <div className="text-sm font-medium">开始一个任务</div>
-              <p className="mt-1 text-xs text-ink-muted">
-                在下方描述要做的事，agent 会在这个工作目录里执行。
-              </p>
+      {/* One full-height scroll area: its scrollbar runs the whole panel in its
+          own column (never covered), and the composer sticks to the bottom as
+          in-flow content — messages scroll cleanly under its opaque bar. */}
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
+        <div className="flex min-h-full flex-col">
+          <div className="flex-1">
+            <div className="mx-auto flex max-w-[52rem] flex-col gap-4 px-5 pt-6">
+              {connecting && <div className="py-10 text-center text-sm text-ink-muted">加载中…</div>}
+              {!connecting && render.rows.length === 0 && (
+                <div className="py-14 text-center">
+                  <div className="text-sm font-medium">开始一个任务</div>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    在下方描述要做的事，agent 会在这个工作目录里执行。
+                  </p>
+                </div>
+              )}
+              {items.map((item) =>
+                item.kind === 'tools' ? (
+                  <ToolGroup key={item.id} rows={item.rows} />
+                ) : (
+                  <Row
+                    key={item.row.id}
+                    row={item.row}
+                    turnEnd={turnEnds.has(item.row.id)}
+                    imgSrc={imgSrc}
+                    onImageOpen={setLightbox}
+                  />
+                ),
+              )}
+              {streamingText && (
+                <div className="max-w-[95%] self-start">
+                  <Markdown text={streamingText} />
+                  <span className="stream-cursor">▌</span>
+                </div>
+              )}
+              {thinking && (
+                <div className="flex items-center gap-2 self-start py-1 text-sm text-ink-muted">
+                  <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-accent" />
+                  <span>正在思考{elapsed > 0 ? ` · ${fmtElapsed(elapsed)}` : '…'}</span>
+                </div>
+              )}
             </div>
-          )}
-          {items.map((item) =>
-            item.kind === 'tools' ? (
-              <ToolGroup key={item.id} rows={item.rows} />
-            ) : (
-              <Row key={item.row.id} row={item.row} turnEnd={turnEnds.has(item.row.id)} />
-            ),
-          )}
-          {streamingText && (
-            <div className="max-w-[95%] self-start">
-              <Markdown text={streamingText} />
-              <span className="stream-cursor">▌</span>
-            </div>
-          )}
+          </div>
+          <div className="sticky bottom-0 bg-canvas">
+            <Composer />
+          </div>
         </div>
       </div>
+
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
+          onClick={() => setLightbox(null)}
+        >
+          <img
+            src={lightbox}
+            alt=""
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
+          />
+          <button
+            onClick={() => setLightbox(null)}
+            title="关闭"
+            className="absolute top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full bg-black/40 text-white/90 hover:bg-black/60"
+          >
+            <IconX size={18} />
+          </button>
+        </div>
+      )}
     </>
   );
 }
@@ -146,10 +240,28 @@ function StreamIndicator({ status }: { status: string }) {
   );
 }
 
-function Row({ row, turnEnd }: { row: RenderRow; turnEnd: boolean }) {
+function Row({
+  row,
+  turnEnd,
+  imgSrc,
+  onImageOpen,
+}: {
+  row: RenderRow;
+  turnEnd: boolean;
+  imgSrc: (file?: string) => string | null;
+  onImageOpen: (src: string) => void;
+}) {
   switch (row.kind) {
     case 'user':
-      return <UserRow text={row.text ?? ''} createdAt={row.createdAt} />;
+      return (
+        <UserRow
+          text={row.text ?? ''}
+          images={row.images}
+          createdAt={row.createdAt}
+          imgSrc={imgSrc}
+          onImageOpen={onImageOpen}
+        />
+      );
     case 'assistant':
       return <AssistantRow text={row.text ?? ''} createdAt={row.createdAt} turnEnd={turnEnd} />;
     case 'error':
@@ -184,12 +296,57 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function UserRow({ text, createdAt }: { text: string; createdAt?: string }) {
+function UserRow({
+  text,
+  images,
+  createdAt,
+  imgSrc,
+  onImageOpen,
+}: {
+  text: string;
+  images?: ImageRef[];
+  createdAt?: string;
+  imgSrc: (file?: string) => string | null;
+  onImageOpen: (src: string) => void;
+}) {
   return (
     <div className="group flex max-w-[75%] flex-col items-end self-end">
-      <div className="rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-base leading-[1.7] whitespace-pre-wrap">
-        {text}
-      </div>
+      {images && images.length > 0 && (
+        <div className="mb-1 flex flex-wrap justify-end gap-1.5">
+          {images.map((img, i) => {
+            const src = imgSrc(img.file);
+            return src ? (
+              <button
+                key={`${img.name}-${i}`}
+                onClick={() => onImageOpen(src)}
+                title={img.name}
+                className="block h-28 w-28 overflow-hidden rounded-lg border border-border"
+              >
+                {/* Fixed square tile, cropped to fill — a very long screenshot
+                    shows a neat preview instead of a thin sliver. */}
+                <img
+                  src={src}
+                  alt={img.name}
+                  className="h-full w-full cursor-zoom-in object-cover"
+                />
+              </button>
+            ) : (
+              <span
+                key={`${img.name}-${i}`}
+                className="flex items-center gap-1 rounded-md bg-raised px-2 py-1 text-[11px] text-ink-muted"
+              >
+                <IconImage size={12} className="text-ink-faint" />
+                {img.name}
+              </span>
+            );
+          })}
+        </div>
+      )}
+      {text && (
+        <div className="rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-base leading-[1.7] whitespace-pre-wrap">
+          {text}
+        </div>
+      )}
       {/* In-flow so the gap is reserved and the hover reveal never overlaps
           the next message. */}
       <div className="mt-0.5 flex h-5 items-center gap-2 whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100">

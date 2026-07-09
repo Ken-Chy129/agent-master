@@ -1,19 +1,14 @@
 import { useEffect, useState } from 'react';
 import type { WorkspaceListing } from '@agent-master/core';
+import { useEscape } from '../lib/useEscape.js';
 import { EMPTY_RUNTIME, useStore } from '../store.js';
 import { IconArrowUp, IconFolder } from './icons.js';
-
-const MODEL_OPTIONS = [
-  { value: '', label: '默认模型' },
-  { value: 'sonnet', label: 'Sonnet' },
-  { value: 'opus', label: 'Opus' },
-  { value: 'haiku', label: 'Haiku' },
-];
 
 /**
  * Modal to create a session: pick a machine (when not fixed), browse its
  * filesystem for a workspace directory (starting from `initialDir` when
- * given, e.g. quick-create from a project group), optionally set title/model.
+ * given, e.g. quick-create from a project group), optionally set a title.
+ * Model and reasoning effort are chosen per message in the composer, not here.
  */
 export function NewSessionModal({
   machineId,
@@ -37,14 +32,21 @@ export function NewSessionModal({
   const [listing, setListing] = useState<WorkspaceListing | null>(null);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
-  const [model, setModel] = useState('');
   const [creating, setCreating] = useState(false);
+  // The editable path bar: mirrors the browsed directory, but the user can type
+  // an absolute path and press Enter to jump straight there.
+  const [pathInput, setPathInput] = useState('');
+
+  useEscape(onClose);
 
   const browse = async (path?: string) => {
     if (!selectedMachine) return;
     setLoading(true);
     const res = await listWorkspaces(selectedMachine, path);
-    if (res) setListing(res);
+    if (res) {
+      setListing(res);
+      setPathInput(res.path);
+    }
     setLoading(false);
   };
 
@@ -64,7 +66,6 @@ export function NewSessionModal({
       await createSession(selectedMachine, {
         workspaceDir: current,
         title: title.trim() || undefined,
-        model: model || undefined,
       });
       onClose();
     } finally {
@@ -78,7 +79,7 @@ export function NewSessionModal({
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-lg flex-col gap-3 rounded-2xl border border-border bg-surface p-5 shadow-xl"
+        className="flex max-h-[85vh] w-full max-w-lg flex-col gap-3 overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div>
@@ -107,11 +108,34 @@ export function NewSessionModal({
           </label>
         )}
 
-        <div className="truncate rounded-lg border border-border bg-raised px-3 py-2 font-mono text-xs text-ink-muted">
-          {current || '（根目录）'}
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={pathInput}
+            placeholder="输入路径后回车跳转，例如 /Users/you/projects"
+            spellCheck={false}
+            onChange={(e) => setPathInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const p = pathInput.trim();
+                if (p) void browse(p);
+              }
+            }}
+            className="min-w-0 flex-1 rounded-lg border border-border bg-raised px-3 py-2 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-accent"
+          />
+          <button
+            onClick={() => {
+              const p = pathInput.trim();
+              if (p) void browse(p);
+            }}
+            className="flex-none rounded-lg border border-border px-3 py-2 text-xs text-ink-muted transition-colors hover:border-border-strong hover:text-ink"
+          >
+            跳转
+          </button>
         </div>
 
-        <div className="min-h-40 flex-1 overflow-y-auto rounded-lg border border-border">
+        <div className="h-64 shrink-0 overflow-y-auto rounded-lg border border-border">
           {loading && <div className="p-4 text-center text-sm text-ink-muted">加载中…</div>}
           {!loading && listing?.parent && (
             <button
@@ -138,32 +162,16 @@ export function NewSessionModal({
           )}
         </div>
 
-        <div className="flex gap-3">
-          <label className="block flex-1">
-            <span className="mb-1 block text-xs text-ink-muted">标题（可选）</span>
-            <input
-              type="text"
-              value={title}
-              placeholder="例如：修复登录 bug"
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none placeholder:text-ink-faint focus:border-accent"
-            />
-          </label>
-          <label className="block w-32">
-            <span className="mb-1 block text-xs text-ink-muted">模型</span>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
-            >
-              {MODEL_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <label className="block">
+          <span className="mb-1 block text-xs text-ink-muted">标题（可选）</span>
+          <input
+            type="text"
+            value={title}
+            placeholder="例如：修复登录 bug"
+            onChange={(e) => setTitle(e.target.value)}
+            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none placeholder:text-ink-faint focus:border-accent"
+          />
+        </label>
 
         <div className="flex justify-end gap-2 pt-1">
           <button
