@@ -168,6 +168,7 @@ summary:focus-visible,
   font-size: 1rem;
   line-height: 1.7;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .md > :first-child {
   margin-top: 0;

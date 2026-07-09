@@ -204,7 +204,7 @@ export interface RenderRow {
   name?: string; // tool
   input?: unknown; // tool
   output?: unknown; // tool (present once the result lands)
-  status?: 'running' | 'done'; // tool
+  status?: 'running' | 'done' | 'incomplete'; // tool ('incomplete' = run ended before the result landed)
   createdAt?: string; // RFC3339, from the originating event
   images?: ImageRef[]; // user: attached images
 }
