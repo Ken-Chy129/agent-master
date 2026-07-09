@@ -27,6 +27,9 @@ function fmtElapsed(s: number): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
+/** Collapse user messages taller than this (px) behind a 展开/收起 toggle. */
+const USER_MSG_COLLAPSE_PX = 288;
+
 function groupRows(rows: RenderRow[]): FeedItem[] {
   const items: FeedItem[] = [];
   for (const row of rows) {
@@ -62,23 +65,40 @@ export function Conversation() {
 
   const items = useMemo(() => groupRows(render.rows), [render.rows]);
 
-  // The copy+time footer belongs to the END of each exchange: the last
-  // assistant message before the next user message. The feed's trailing
-  // assistant message only counts once the run has settled.
-  const turnEnds = useMemo(() => {
-    const ends = new Set<string>();
-    let lastAssistant: string | null = null;
+  // The copy+time footer marks the END of each settled exchange. It carries the
+  // exchange's final assistant text (for copy) and time, but is anchored to the
+  // exchange's LAST feed item — normally that assistant message, but a trailing
+  // tool group when the run was interrupted mid-tool. Anchoring to the last item
+  // keeps the footer at the visual bottom instead of stranding a leftover tool
+  // row beneath it. Keyed by anchor item id → footer content.
+  const turnFooters = useMemo(() => {
+    const map = new Map<string, { text: string; createdAt?: string }>();
+    let lastAssistant: RenderRow | null = null;
+    let anchorId: string | null = null;
+    const flush = () => {
+      if (lastAssistant && anchorId) {
+        map.set(anchorId, { text: lastAssistant.text ?? '', createdAt: lastAssistant.createdAt });
+      }
+      lastAssistant = null;
+    };
     for (const it of items) {
-      if (it.kind !== 'row') continue;
+      if (it.kind === 'tools') {
+        anchorId = it.id;
+        continue;
+      }
       if (it.row.kind === 'user') {
-        if (lastAssistant) ends.add(lastAssistant);
-        lastAssistant = null;
+        flush(); // close the previous exchange before this new user turn
+        anchorId = it.row.id;
       } else if (it.row.kind === 'assistant') {
-        lastAssistant = it.row.id;
+        lastAssistant = it.row;
+        anchorId = it.row.id;
+      } else {
+        anchorId = it.row.id;
       }
     }
-    if (lastAssistant && !runActive) ends.add(lastAssistant);
-    return ends;
+    // The trailing exchange only settles once the run is done.
+    if (!runActive) flush();
+    return map;
   }, [items, runActive]);
 
   useEffect(() => {
@@ -174,12 +194,12 @@ export function Conversation() {
               )}
               {items.map((item) =>
                 item.kind === 'tools' ? (
-                  <ToolGroup key={item.id} rows={item.rows} />
+                  <ToolGroup key={item.id} rows={item.rows} footer={turnFooters.get(item.id)} />
                 ) : (
                   <Row
                     key={item.row.id}
                     row={item.row}
-                    turnEnd={turnEnds.has(item.row.id)}
+                    footer={turnFooters.get(item.row.id)}
                     imgSrc={imgSrc}
                     onImageOpen={setLightbox}
                   />
@@ -240,14 +260,17 @@ function StreamIndicator({ status }: { status: string }) {
   );
 }
 
+/** End-of-turn footer content: the exchange's final assistant text + time. */
+type TurnFooterData = { text: string; createdAt?: string };
+
 function Row({
   row,
-  turnEnd,
+  footer,
   imgSrc,
   onImageOpen,
 }: {
   row: RenderRow;
-  turnEnd: boolean;
+  footer?: TurnFooterData;
   imgSrc: (file?: string) => string | null;
   onImageOpen: (src: string) => void;
 }) {
@@ -263,10 +286,10 @@ function Row({
         />
       );
     case 'assistant':
-      return <AssistantRow text={row.text ?? ''} createdAt={row.createdAt} turnEnd={turnEnd} />;
+      return <AssistantRow text={row.text ?? ''} footer={footer} />;
     case 'error':
       return (
-        <div className="self-center rounded-lg border border-danger/50 bg-danger-soft px-3 py-1.5 text-xs text-danger">
+        <div className="max-w-[90%] self-center rounded-lg border border-danger/50 bg-danger-soft px-3 py-1.5 text-xs text-danger [overflow-wrap:anywhere]">
           {row.text}
         </div>
       );
@@ -309,6 +332,21 @@ function UserRow({
   imgSrc: (file?: string) => string | null;
   onImageOpen: (src: string) => void;
 }) {
+  // Cap tall messages (e.g. a pasted blob) with an expand/collapse toggle.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [clamped, setClamped] = useState(false);
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    // scrollHeight reports full content height even while max-h clips it.
+    const measure = () => setClamped(el.scrollHeight > USER_MSG_COLLAPSE_PX + 4);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text]);
+
   return (
     <div className="group flex max-w-[75%] flex-col items-end self-end">
       {images && images.length > 0 && (
@@ -343,8 +381,24 @@ function UserRow({
         </div>
       )}
       {text && (
-        <div className="rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-base leading-[1.7] whitespace-pre-wrap">
-          {text}
+        <div className="flex max-w-full flex-col items-end">
+          <div
+            ref={bodyRef}
+            style={expanded ? undefined : { maxHeight: USER_MSG_COLLAPSE_PX }}
+            className={`rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-base leading-[1.7] whitespace-pre-wrap [overflow-wrap:anywhere] ${
+              expanded ? '' : 'overflow-hidden'
+            }`}
+          >
+            {text}
+          </div>
+          {clamped && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="mt-1 text-[11px] text-ink-faint transition-colors hover:text-ink"
+            >
+              {expanded ? '收起' : '展开全部'}
+            </button>
+          )}
         </div>
       )}
       {/* In-flow so the gap is reserved and the hover reveal never overlaps
@@ -357,34 +411,30 @@ function UserRow({
   );
 }
 
-function AssistantRow({
-  text,
-  createdAt,
-  turnEnd,
-}: {
-  text: string;
-  createdAt?: string;
-  turnEnd: boolean;
-}) {
+function AssistantRow({ text, footer }: { text: string; footer?: TurnFooterData }) {
   return (
     <div className="max-w-[95%] self-start">
       <Markdown text={text} />
-      {/* Only the exchange's final message carries the footer, as a quiet
-          always-visible end-of-turn marker. */}
-      {turnEnd && (
-        <div className="mt-1.5 -ml-1.5 flex items-center gap-2 whitespace-nowrap">
-          <CopyButton text={text} />
-          {createdAt && <span className="flex-none text-[11px] text-ink-faint">{hhmm(createdAt)}</span>}
-        </div>
-      )}
+      {footer && <TurnFooter {...footer} />}
+    </div>
+  );
+}
+
+/** Quiet, always-visible end-of-turn marker: copy the turn's reply + its time. */
+function TurnFooter({ text, createdAt }: TurnFooterData) {
+  return (
+    <div className="mt-1.5 -ml-1.5 flex items-center gap-2 whitespace-nowrap">
+      <CopyButton text={text} />
+      {createdAt && <span className="flex-none text-[11px] text-ink-faint">{hhmm(createdAt)}</span>}
     </div>
   );
 }
 
 /** A run of consecutive tool calls, folded into one quiet expandable line. */
-function ToolGroup({ rows }: { rows: RenderRow[] }) {
+function ToolGroup({ rows, footer }: { rows: RenderRow[]; footer?: TurnFooterData }) {
   const [open, setOpen] = useState(false);
-  const running = rows.some((r) => r.status !== 'done');
+  // Only a genuinely-running tool spins; 'done'/'incomplete' are terminal.
+  const running = rows.some((r) => r.status === 'running');
 
   const summary = useMemo(() => {
     const names: string[] = [];
@@ -423,6 +473,9 @@ function ToolGroup({ rows }: { rows: RenderRow[] }) {
           ))}
         </div>
       )}
+      {/* When a turn was interrupted mid-tool, this group is the turn's last
+          item, so the end-of-turn footer hangs off it instead of the assistant. */}
+      {footer && <TurnFooter {...footer} />}
     </div>
   );
 }
@@ -437,6 +490,13 @@ function ToolDetail({ row }: { row: RenderRow }) {
         </span>
         {row.status === 'done' ? (
           <IconCheck size={12} className="flex-none text-success" />
+        ) : row.status === 'incomplete' ? (
+          <span
+            title="未完成：运行在结果返回前被中断"
+            className="flex-none font-mono text-[13px] leading-none text-ink-faint"
+          >
+            –
+          </span>
         ) : (
           <span className="pulse-dot h-1.5 w-1.5 flex-none rounded-full bg-accent" />
         )}
