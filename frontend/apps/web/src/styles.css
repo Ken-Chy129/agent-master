@@ -92,6 +92,53 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/*
+ * Overlay-style scrollbars: a thin thumb over a transparent track, so the
+ * scrollbar reads as a single bar with no track "border" strip beside it.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--am-border-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+  border: none;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--am-border-strong);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--am-ink-faint);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/*
+ * Keyboard-focus ring. The UA outline follows the OS accent color (e.g. orange
+ * on some macOS setups) and looks out of place; replace it with a consistent,
+ * subtle app ring shown only on keyboard focus. Mouse clicks show nothing;
+ * text inputs/selects keep their own focus:border-accent treatment.
+ */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--am-accent);
+  outline-offset: 2px;
+}
+
 @keyframes am-pulse {
   0%,
   100% {
@@ -230,11 +277,19 @@ body {
 .desktop-mac .app-drag button,
 .desktop-mac .app-drag input,
 .desktop-mac .app-drag select,
-.desktop-mac .app-drag textarea {
+.desktop-mac .app-drag textarea,
+.desktop-mac .app-drag form {
   -webkit-app-region: no-drag;
 }
+/*
+ * The rail doubles as the title-bar column: wide enough (72px) for the
+ * traffic lights (52px span at x=10) to sit centered inside it instead of
+ * straddling the rail/content border, with a 44px top zone reserved for
+ * them. Keep in sync with trafficLightPosition in apps/desktop main.ts.
+ */
 .desktop-mac .am-rail {
-  padding-top: 52px;
+  width: 72px;
+  padding-top: 44px;
 }
 
 .stream-cursor {

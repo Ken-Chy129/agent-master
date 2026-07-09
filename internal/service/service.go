@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 const (
@@ -103,8 +104,7 @@ func Restart() error {
 		if err != nil {
 			return err
 		}
-		_ = runQuiet("launchctl", "bootout", "gui/"+uid()+"/"+macLabel) // best-effort; may be stopped
-		return runQuiet("launchctl", "bootstrap", "gui/"+uid(), plistPath)
+		return bootstrapLaunchd(plistPath)
 	case "windows":
 		return restartWindows()
 	default:
@@ -209,12 +209,67 @@ func installLaunchd(exe string) error {
 		return err
 	}
 
+	return bootstrapLaunchd(plistPath)
+}
+
+// bootstrapLaunchd (re)loads the LaunchAgent, tolerating the teardown race that
+// makes a naive bootout→bootstrap fail with "Bootstrap failed: 5: Input/output
+// error": the daemon shuts down gracefully (up to a few seconds on SIGTERM), so
+// the old job can still be present when bootstrap runs. We boot out, wait for
+// the job to actually disappear, then bootstrap with a short retry on the
+// transient error. Loading an already-loaded job is treated as success.
+func bootstrapLaunchd(plistPath string) error {
 	target := "gui/" + uid()
-	_ = runQuiet("launchctl", "bootout", target+"/"+macLabel) // best-effort clear of a stale instance (ignore "No such process")
-	if err := runQuiet("launchctl", "bootstrap", target, plistPath); err != nil {
-		return fmt.Errorf("%w\n(hint: launchctl bootstrap %s %s)", err, target, plistPath)
+	label := target + "/" + macLabel
+	if launchdLoaded(label) {
+		_ = runQuiet("launchctl", "bootout", label) // ignore "No such process"
+		waitLaunchdUnloaded(label)
 	}
-	return nil
+	var err error
+	for attempt := 0; attempt < 10; attempt++ {
+		err = runQuiet("launchctl", "bootstrap", target, plistPath)
+		if err == nil || launchdAlreadyLoaded(err) {
+			return nil
+		}
+		if !launchdTransient(err) {
+			break
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return fmt.Errorf("%w\n(hint: launchctl bootstrap %s %s)", err, target, plistPath)
+}
+
+// launchdLoaded reports whether the job is currently known to launchd.
+func launchdLoaded(label string) bool {
+	return runQuiet("launchctl", "print", label) == nil
+}
+
+// waitLaunchdUnloaded polls until the job is gone (or a ~3s cap), so a following
+// bootstrap doesn't collide with a still-terminating instance.
+func waitLaunchdUnloaded(label string) {
+	for i := 0; i < 30; i++ {
+		if !launchdLoaded(label) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// launchdTransient matches the errors seen while launchd is mid-teardown; they
+// clear once the previous instance is fully gone.
+func launchdTransient(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "Bootstrap failed: 5") ||
+		strings.Contains(s, "Input/output error") ||
+		strings.Contains(s, "Operation now in progress")
+}
+
+// launchdAlreadyLoaded matches "the job is already loaded", which for our
+// purpose (ensure it's running) is a success, not a failure.
+func launchdAlreadyLoaded(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "service already loaded") ||
+		strings.Contains(s, "already bootstrapped")
 }
 
 func uninstallLaunchd() error {

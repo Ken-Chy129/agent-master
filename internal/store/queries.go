@@ -16,6 +16,7 @@ type Session struct {
 	Title           string `json:"title"`
 	Provider        string `json:"provider"`
 	Model           string `json:"model"`
+	Effort          string `json:"effort"`
 	WorkspaceDir    string `json:"workspaceDir"`
 	NativeSessionID string `json:"-"`
 	CreatedAt       string `json:"createdAt"`
@@ -59,9 +60,9 @@ func (s *Store) CreateSession(sess Session) error {
 		sess.Provider = "claude"
 	}
 	_, err := s.DB.Exec(
-		`INSERT INTO sessions (id,title,provider,model,workspace_dir,native_session_id,created_at,updated_at,archived)
-		 VALUES (?,?,?,?,?,?,?,?,0)`,
-		sess.ID, sess.Title, sess.Provider, sess.Model, sess.WorkspaceDir, sess.NativeSessionID, sess.CreatedAt, sess.UpdatedAt,
+		`INSERT INTO sessions (id,title,provider,model,effort,workspace_dir,native_session_id,created_at,updated_at,archived)
+		 VALUES (?,?,?,?,?,?,?,?,?,0)`,
+		sess.ID, sess.Title, sess.Provider, sess.Model, sess.Effort, sess.WorkspaceDir, sess.NativeSessionID, sess.CreatedAt, sess.UpdatedAt,
 	)
 	if err != nil {
 		return err
@@ -78,11 +79,11 @@ func (s *Store) CreateSession(sess Session) error {
 // GetSession returns a session by id, or ErrNotFound.
 func (s *Store) GetSession(id string) (Session, error) {
 	var sess Session
-	var nativeID sql.NullString
+	var nativeID, effort sql.NullString
 	err := s.DB.QueryRow(
-		`SELECT id,title,provider,model,workspace_dir,native_session_id,created_at,updated_at,archived
+		`SELECT id,title,provider,model,effort,workspace_dir,native_session_id,created_at,updated_at,archived
 		 FROM sessions WHERE id=?`, id,
-	).Scan(&sess.ID, &sess.Title, &sess.Provider, &sess.Model, &sess.WorkspaceDir, &nativeID, &sess.CreatedAt, &sess.UpdatedAt, &sess.Archived)
+	).Scan(&sess.ID, &sess.Title, &sess.Provider, &sess.Model, &effort, &sess.WorkspaceDir, &nativeID, &sess.CreatedAt, &sess.UpdatedAt, &sess.Archived)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, ErrNotFound
 	}
@@ -90,7 +91,18 @@ func (s *Store) GetSession(id string) (Session, error) {
 		return Session{}, err
 	}
 	sess.NativeSessionID = nativeID.String
+	sess.Effort = effort.String
 	return sess, nil
+}
+
+// UpdateSessionModel records the session's last-used model and reasoning effort
+// (per-message selection sticks as the default for the next turn).
+func (s *Store) UpdateSessionModel(id, model, effort string) error {
+	_, err := s.DB.Exec(
+		`UPDATE sessions SET model=?, effort=?, updated_at=? WHERE id=?`,
+		model, effort, nowRFC3339(), id,
+	)
+	return err
 }
 
 // SetNativeSessionID records the provider's native session id for resume.

@@ -3,6 +3,7 @@ import type {
   HealthResponse,
   InfoResponse,
   ListMessagesResponse,
+  ListModelsResponse,
   ListSessionsResponse,
   OkResponse,
   RenameSessionRequest,
@@ -133,6 +134,11 @@ export class ApiClient {
     return this.request<SendResponse>('POST', `/api/sessions/${encodeURIComponent(id)}/send`, {
       body,
     });
+  }
+
+  /** GET /api/models — selectable models with per-model effort support. */
+  listModels(): Promise<ListModelsResponse> {
+    return this.request<ListModelsResponse>('GET', '/api/models');
   }
 
   /** GET /api/workspaces?path= — browse directories to pick a workspace. */

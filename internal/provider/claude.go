@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,6 +25,10 @@ const maxLine = 16 * 1024 * 1024
 // line-delimited JSON; stdin is unused (the prompt is passed as an argument).
 type Claude struct {
 	Bin string
+
+	modelsMu    sync.Mutex
+	modelsCache []ModelInfo
+	modelsAt    time.Time
 }
 
 // NewClaude returns a provider that invokes the given claude binary path.
@@ -31,17 +37,34 @@ func NewClaude(bin string) *Claude { return &Claude{Bin: bin} }
 func (c *Claude) Type() string { return "claude" }
 
 func (c *Claude) Run(ctx context.Context, o RunOptions, onEvent func(StreamEvent)) (RunResult, error) {
+	// Images ride along as local files the agent reads with its Read tool: we
+	// append a "read this file" instruction per image and allow-list their
+	// directories via --add-dir. This keeps the plain -p text path intact
+	// instead of switching to stream-json stdin for base64 blocks.
+	message := o.Message
+	var addDirs []string
+	if len(o.Images) > 0 {
+		message = appendImageInstructions(message, o.Images)
+		addDirs = imageDirs(o.Images)
+	}
+
 	args := []string{
-		"-p", o.Message,
+		"-p", message,
 		"--output-format", "stream-json",
 		"--include-partial-messages", // emit token-level content_block_delta events
 		"--verbose",                  // required for stream-json to emit the full event stream
+	}
+	for _, d := range addDirs {
+		args = append(args, "--add-dir", d)
 	}
 	if o.NativeSessionID != "" {
 		args = append(args, "--resume", o.NativeSessionID)
 	}
 	if o.Model != "" {
 		args = append(args, "--model", o.Model)
+	}
+	if o.Effort != "" {
+		args = append(args, "--effort", o.Effort)
 	}
 	if o.PermissionMode != "" {
 		args = append(args, "--permission-mode", o.PermissionMode)
@@ -158,6 +181,40 @@ func handleMessage(msg *claudeMsg, res *RunResult, onEvent func(StreamEvent)) {
 		res.IsError = msg.IsError
 		onEvent(StreamEvent{Kind: KindResult, Text: msg.Result})
 	}
+}
+
+// appendImageInstructions augments the user text with a line per image telling
+// Claude to read the staged file (its Read tool renders images visually).
+func appendImageInstructions(message string, images []ImageInput) string {
+	var b strings.Builder
+	b.WriteString(message)
+	if strings.TrimSpace(message) != "" {
+		b.WriteString("\n\n")
+	}
+	b.WriteString("附带的图片（请用 Read 工具查看）：")
+	for _, img := range images {
+		name := img.Name
+		if name == "" {
+			name = filepath.Base(img.Path)
+		}
+		fmt.Fprintf(&b, "\nRead this image file from disk: %s (name: %s)", img.Path, name)
+	}
+	return b.String()
+}
+
+// imageDirs returns the unique parent directories of the staged images, to pass
+// as --add-dir so the agent is permitted to read them.
+func imageDirs(images []ImageInput) []string {
+	seen := make(map[string]bool)
+	var dirs []string
+	for _, img := range images {
+		d := filepath.Dir(img.Path)
+		if !seen[d] {
+			seen[d] = true
+			dirs = append(dirs, d)
+		}
+	}
+	return dirs
 }
 
 func rawOrNil(r json.RawMessage) any {

@@ -6,8 +6,10 @@ import {
   type CreateSessionRequest,
   type InfoResponse,
   type MachineProfile,
+  type ModelInfo,
   type RecentSession,
   type RenderState,
+  type SendImage,
   type Session,
   type WorkspaceListing,
 } from '@agent-master/core';
@@ -117,6 +119,8 @@ interface StoreState {
   runtimes: Record<string, MachineRuntime>;
   /** Per-session last seen seq (persisted); drives the needs-attention state. */
   seenSeq: Record<string, number>;
+  /** Selectable models per machine id (fetched lazily). */
+  modelsByMachine: Record<string, ModelInfo[]>;
 
   view: View;
   /** The machine whose workspace is open (view === 'machine'). */
@@ -154,12 +158,16 @@ interface StoreState {
 
   // sessions
   listWorkspaces: (machineId: string, path?: string) => Promise<WorkspaceListing | null>;
+  loadModels: (machineId: string) => Promise<void>;
   createSession: (machineId: string, req: CreateSessionRequest) => Promise<void>;
   openSession: (machineId: string, sessionId: string) => Promise<void>;
   closeSession: () => void;
   renameSession: (machineId: string, sessionId: string, title: string) => Promise<void>;
   deleteSession: (machineId: string, sessionId: string) => Promise<void>;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (
+    text: string,
+    opts?: { model?: string; effort?: string; images?: SendImage[] },
+  ) => Promise<void>;
   interrupt: () => Promise<void>;
   markSeen: (sessionId: string, seq: number) => void;
   clearError: () => void;
@@ -188,6 +196,7 @@ export const useStore = create<StoreState>((set, get) => {
     machines: [],
     runtimes: {},
     seenSeq: {},
+    modelsByMachine: {},
     view: 'overview',
     activeMachineId: null,
     sessionColumnCollapsed: loadColumnCollapsed(),
@@ -317,6 +326,20 @@ export const useStore = create<StoreState>((set, get) => {
       }
     },
 
+    loadModels: async (machineId) => {
+      if (get().modelsByMachine[machineId]) return; // cached for the session
+      const api = apiFor(machineId);
+      if (!api) return;
+      try {
+        const res = await api.listModels();
+        set((state) => ({
+          modelsByMachine: { ...state.modelsByMachine, [machineId]: res.models },
+        }));
+      } catch {
+        // Non-fatal: the composer falls back to a plain default-model send.
+      }
+    },
+
     createSession: async (machineId, req) => {
       const api = apiFor(machineId);
       if (!api) return;
@@ -333,6 +356,8 @@ export const useStore = create<StoreState>((set, get) => {
       const m = machineById(machineId);
       if (!m) return;
       const { api, sse } = clientsFor(m);
+
+      void get().loadModels(machineId);
 
       stopStream();
       set({
@@ -434,15 +459,35 @@ export const useStore = create<StoreState>((set, get) => {
       }
     },
 
-    sendMessage: async (text) => {
+    sendMessage: async (text, opts) => {
       const { currentSessionId, currentSessionMachineId } = get();
       if (!currentSessionId || !currentSessionMachineId) return;
       const api = apiFor(currentSessionMachineId);
       if (!api) return;
       const trimmed = text.trim();
-      if (!trimmed) return;
+      const images = opts?.images ?? [];
+      if (!trimmed && images.length === 0) return;
       try {
-        await api.send(currentSessionId, { message: trimmed, clientIntentId: randomId() });
+        await api.send(currentSessionId, {
+          message: trimmed,
+          model: opts?.model,
+          effort: opts?.effort,
+          images: images.length > 0 ? images : undefined,
+          clientIntentId: randomId(),
+        });
+        // Reflect the sticky model/effort in the header immediately.
+        if (opts?.model !== undefined || opts?.effort !== undefined) {
+          const meta = get().currentSessionMeta;
+          if (meta && get().currentSessionId === currentSessionId) {
+            set({
+              currentSessionMeta: {
+                ...meta,
+                model: opts?.model ?? meta.model,
+                effort: opts?.effort ?? meta.effort,
+              },
+            });
+          }
+        }
       } catch (err) {
         set({ error: errText(err) });
       }

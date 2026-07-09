@@ -5,7 +5,19 @@ import remarkGfm from 'remark-gfm';
 export function Markdown({ text }: { text: string }) {
   return (
     <div className="md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // Open links externally (new browser tab on web; the desktop shell's
+          // window-open handler routes target=_blank to the OS browser) instead
+          // of navigating the app itself in place.
+          a: ({ node: _node, ...props }) => (
+            <a {...props} target="_blank" rel="noreferrer noopener" />
+          ),
+        }}
+      >
+        {text}
+      </ReactMarkdown>
     </div>
   );
 }

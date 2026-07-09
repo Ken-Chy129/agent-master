@@ -33,10 +33,22 @@ type RenderRow struct {
 	Output    json.RawMessage `json:"output,omitempty"`    // tool (set once the result lands)
 	Status    string          `json:"status,omitempty"`    // tool: running | done
 	CreatedAt string          `json:"createdAt,omitempty"` // RFC3339, from the originating event
+	Images    []ImageRef      `json:"images,omitempty"`    // user: attached images
+}
+
+// ImageRef names an image attached to a user turn (for history display).
+type ImageRef struct {
+	Name      string `json:"name"`
+	MediaType string `json:"mediaType,omitempty"`
+	File      string `json:"file,omitempty"` // staged basename, served via /uploads/{file}
 }
 
 type textPayload struct {
 	Text string `json:"text"`
+}
+type userPayload struct {
+	Text   string     `json:"text"`
+	Images []ImageRef `json:"images"`
 }
 type toolCallPayload struct {
 	Name  string          `json:"name"`
@@ -64,9 +76,9 @@ func Compute(events []store.Event) RenderState {
 		rs.BasedOnSeq = e.Seq
 		switch e.Type {
 		case "user_message":
-			var p textPayload
+			var p userPayload
 			_ = json.Unmarshal(e.Payload, &p)
-			rs.Rows = append(rs.Rows, RenderRow{Kind: "user", ID: fmt.Sprintf("u%d", e.Seq), Seq: e.Seq, Text: p.Text, CreatedAt: e.CreatedAt})
+			rs.Rows = append(rs.Rows, RenderRow{Kind: "user", ID: fmt.Sprintf("u%d", e.Seq), Seq: e.Seq, Text: p.Text, Images: p.Images, CreatedAt: e.CreatedAt})
 		case "assistant_message":
 			var p textPayload
 			_ = json.Unmarshal(e.Payload, &p)

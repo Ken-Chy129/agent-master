@@ -230,9 +230,12 @@ function createWindow(): void {
     title: 'agent-master',
     // macOS: drop the title bar entirely; the traffic lights float over the
     // UI. Drag regions live in the web UI (-webkit-app-region on the rail
-    // and header bars, behind the .desktop-mac root class).
+    // and header bars, behind the .desktop-mac root class). The lights are
+    // centered over the 72px machine rail (buttons span 52px → x inset 10),
+    // inside its 44px-tall top zone (y = (44 - 12) / 2 = 16); keep these
+    // numbers in sync with `.desktop-mac .am-rail` in apps/web styles.css.
     ...(process.platform === 'darwin'
-      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 10, y: 18 } }
+      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 10, y: 16 } }
       : {}),
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
@@ -255,6 +258,23 @@ function createWindow(): void {
       return { action: 'deny' };
     }
     return { action: 'deny' };
+  });
+
+  // Safety net: an in-page <a> click without target=_blank triggers a
+  // navigation rather than a window-open. Keep the shell on its own origin and
+  // send cross-origin http/https links to the OS browser instead of loading
+  // them here. Same-origin navigations (e.g. the Vite dev server) are left be.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!/^https?:\/\//i.test(url)) return;
+    try {
+      const currentOrigin = new URL(mainWindow?.webContents.getURL() ?? '').origin;
+      if (new URL(url).origin !== currentOrigin) {
+        event.preventDefault();
+        void shell.openExternal(url);
+      }
+    } catch {
+      /* ignore malformed URLs */
+    }
   });
 
   mainWindow.on('closed', () => {

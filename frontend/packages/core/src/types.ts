@@ -12,6 +12,7 @@ export interface Session {
   title: string;
   provider: string; // "claude"
   model: string; // "" = provider default
+  effort: string; // reasoning effort (low|medium|high|xhigh|max); "" = provider default
   workspaceDir: string;
   createdAt: string; // RFC3339
   updatedAt: string; // RFC3339
@@ -64,8 +65,16 @@ export interface StreamDelta {
 // --- Per-type payload shapes (payload is `unknown` on WireEvent; narrow with the
 // helpers/guards below or these interfaces when you know the event type). ---
 
+/** An image attached to a user turn. `file` is the staged basename the daemon
+ * serves at `/api/sessions/{id}/uploads/{file}`. */
+export interface ImageRef {
+  name: string;
+  mediaType?: string;
+  file?: string;
+}
 export interface UserMessagePayload {
   text: string;
+  images?: ImageRef[];
 }
 export interface AssistantMessagePayload {
   text: string;
@@ -133,6 +142,7 @@ export interface ListMessagesResponse {
 export interface CreateSessionRequest {
   workspaceDir: string;
   model?: string;
+  effort?: string;
   title?: string;
 }
 
@@ -140,9 +150,33 @@ export interface RenameSessionRequest {
   title: string;
 }
 
+/** An image to send with a message: raw base64 (no data: prefix). */
+export interface SendImage {
+  name: string;
+  mediaType: string;
+  data: string;
+}
+
 export interface SendRequest {
   message: string;
+  /** Per-message model override; omit to keep the session's last-used model. */
+  model?: string;
+  /** Per-message reasoning-effort override; omit to keep the last-used value. */
+  effort?: string;
+  images?: SendImage[];
   clientIntentId?: string;
+}
+
+/** One selectable model (GET /api/models). */
+export interface ModelInfo {
+  id: string; // "" = provider default
+  label: string;
+  description?: string;
+  efforts?: string[]; // supported reasoning-effort levels
+}
+
+export interface ListModelsResponse {
+  models: ModelInfo[];
 }
 
 export interface SendResponse {
@@ -172,6 +206,7 @@ export interface RenderRow {
   output?: unknown; // tool (present once the result lands)
   status?: 'running' | 'done'; // tool
   createdAt?: string; // RFC3339, from the originating event
+  images?: ImageRef[]; // user: attached images
 }
 
 /**
