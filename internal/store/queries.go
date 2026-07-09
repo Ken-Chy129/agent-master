@@ -346,6 +346,47 @@ func (s *Store) FinishRun(id, state, errMsg string) error {
 	return err
 }
 
+// ClearActiveRun clears a session projection's active run and records the run's
+// terminal state, preserving the existing preview. Used by startup
+// reconciliation, where the assistant preview isn't at hand and must not be
+// blanked.
+func (s *Store) ClearActiveRun(sessionID, lastRunState string) error {
+	_, err := s.DB.Exec(
+		`UPDATE recent_sessions SET active_run_id=NULL, last_run_state=?, updated_at=? WHERE id=?`,
+		nullIfEmpty(lastRunState), nowRFC3339(), sessionID,
+	)
+	return err
+}
+
+// RunRef identifies a run and the session it belongs to.
+type RunRef struct {
+	ID        string
+	SessionID string
+}
+
+// RunningRuns returns every run still marked running. At daemon startup these
+// are necessarily orphans of a previous process (a live run holds an in-memory
+// cancel func, which does not survive a restart), so callers use this to
+// reconcile them to a terminal state.
+func (s *Store) RunningRuns() ([]RunRef, error) {
+	rows, err := s.DB.Query(
+		`SELECT id, session_id FROM runs WHERE state='running' ORDER BY started_at`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RunRef
+	for rows.Next() {
+		var r RunRef
+		if err := rows.Scan(&r.ID, &r.SessionID); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 func nullIfEmpty(s string) any {
 	if s == "" {
 		return nil

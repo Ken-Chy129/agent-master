@@ -58,25 +58,40 @@ func withDefault(models []ModelInfo) []ModelInfo {
 	return append([]ModelInfo{defaultModelOption}, models...)
 }
 
-// fetchClaudeModels calls Anthropic's /v1/models with the Claude Code OAuth
-// token and the CLI's identifying headers. Returns ok=false on any failure so
-// the caller falls back to the built-in list.
+// fetchClaudeModels calls the /v1/models endpoint with the same credential and
+// base URL the claude CLI would use, so the picker matches what actually runs.
+// It honors ANTHROPIC_BASE_URL (e.g. a proxy/gateway) and selects the auth
+// header by credential kind: an API key rides x-api-key, an OAuth token rides
+// Authorization: Bearer with the oauth beta header. Returns ok=false on any
+// failure so the caller falls back to the built-in list.
 func fetchClaudeModels(ctx context.Context) ([]ModelInfo, bool) {
-	token := claudeOAuthToken()
-	if token == "" {
+	cred := claudeCredential()
+	if cred.token == "" {
 		return nil, false
+	}
+
+	base := strings.TrimRight(strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL")), "/")
+	if base == "" {
+		base = "https://api.anthropic.com"
 	}
 
 	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, "https://api.anthropic.com/v1/models?limit=100", nil)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, base+"/v1/models?limit=100", nil)
 	if err != nil {
 		return nil, false
 	}
-	req.Header.Set("authorization", "Bearer "+token)
 	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
 	req.Header.Set("user-agent", "claude-cli/2.0.0 (external, cli)")
+	switch cred.kind {
+	case credAPIKey:
+		req.Header.Set("x-api-key", cred.token)
+	case credOAuth:
+		req.Header.Set("authorization", "Bearer "+cred.token)
+		req.Header.Set("anthropic-beta", "oauth-2025-04-20")
+	default: // credBearer — a custom gateway bearer token, no oauth beta
+		req.Header.Set("authorization", "Bearer "+cred.token)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -130,23 +145,57 @@ func fetchClaudeModels(ctx context.Context) ([]ModelInfo, bool) {
 	return out, true
 }
 
-// claudeOAuthToken locates the Claude Code credential: env vars first, then the
-// credentials file, then the macOS Keychain. Returns "" when none is found.
-func claudeOAuthToken() string {
-	for _, env := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
-		if v := strings.TrimSpace(os.Getenv(env)); v != "" {
-			return v
+// credKind classifies how a credential must be presented to the API.
+type credKind int
+
+const (
+	credOAuth  credKind = iota // Authorization: Bearer + oauth beta header
+	credAPIKey                 // x-api-key header
+	credBearer                 // Authorization: Bearer, no oauth beta (custom gateway)
+)
+
+// credential is a located Claude Code credential and how to present it.
+type credential struct {
+	token string
+	kind  credKind
+}
+
+// claudeCredential locates the Claude Code credential the same way the CLI does:
+// env vars first (in priority order), then the credentials file, then the macOS
+// Keychain. The kind mirrors how the CLI authenticates each source, so the
+// models request matches the auth the actual run will use. Returns a zero-value
+// credential (empty token) when none is found.
+func claudeCredential() credential {
+	// Priority mirrors the CLI: key-based credentials win over OAuth. When both
+	// a key and an OAuth token are set (common: ANTHROPIC_API_KEY + a proxy plus
+	// a lingering CLAUDE_CODE_OAUTH_TOKEN), the CLI bills the key — so the models
+	// request must use the key too, or it would query a different backend than
+	// the one that actually runs. OAuth tokens are also only valid against
+	// api.anthropic.com, so they can't reach a custom ANTHROPIC_BASE_URL anyway.
+	envs := []struct {
+		name string
+		kind credKind
+	}{
+		{"ANTHROPIC_AUTH_TOKEN", credBearer}, // explicit custom-gateway bearer
+		{"ANTHROPIC_API_KEY", credAPIKey},
+		{"CLAUDE_CODE_OAUTH_TOKEN", credOAuth},
+		{"CLAUDE_OAUTH_TOKEN", credOAuth},
+	}
+	for _, e := range envs {
+		if v := strings.TrimSpace(os.Getenv(e.name)); v != "" {
+			return credential{token: v, kind: e.kind}
 		}
 	}
+	// File and Keychain both hold the claude.ai OAuth access token.
 	if tok := tokenFromCredentialsFile(); tok != "" {
-		return tok
+		return credential{token: tok, kind: credOAuth}
 	}
 	if runtime.GOOS == "darwin" {
 		if tok := tokenFromMacKeychain(); tok != "" {
-			return tok
+			return credential{token: tok, kind: credOAuth}
 		}
 	}
-	return ""
+	return credential{}
 }
 
 // oauthCreds is the shape of both the credentials file and the Keychain item.

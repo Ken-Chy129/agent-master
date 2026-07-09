@@ -71,6 +71,22 @@ func Compute(events []store.Event) RenderState {
 	rs := RenderState{Rows: []RenderRow{}, TailActivity: "idle"}
 	toolRow := make(map[string]int) // tool-call id -> index in Rows
 	runActive := false
+	openTools := []int{} // tool rows still "running" within the current run
+
+	// A tool row only stays "running" while its run is live. When a run ends —
+	// normally, or abruptly (interrupted/crashed, leaving a tool_call with no
+	// tool_result) — any still-open tool from it is orphaned: mark it
+	// "incomplete" so it renders as a terminal (non-spinning) state. Runs are
+	// sequential per session, so a run boundary cleanly scopes which tools to
+	// resolve.
+	flushOpenTools := func() {
+		for _, idx := range openTools {
+			if rs.Rows[idx].Status == "running" {
+				rs.Rows[idx].Status = "incomplete"
+			}
+		}
+		openTools = openTools[:0]
+	}
 
 	for _, e := range events {
 		rs.BasedOnSeq = e.Seq
@@ -94,6 +110,7 @@ func Compute(events []store.Event) RenderState {
 				Kind: "tool", ID: id, Seq: e.Seq, Name: p.Name, Input: p.Input, Status: "running",
 				CreatedAt: e.CreatedAt,
 			})
+			openTools = append(openTools, len(rs.Rows)-1)
 			if p.ID != "" {
 				toolRow[p.ID] = len(rs.Rows) - 1
 			}
@@ -105,9 +122,11 @@ func Compute(events []store.Event) RenderState {
 				rs.Rows[idx].Status = "done"
 			}
 		case "run_started":
+			flushOpenTools() // resolve orphans from any prior run that never finished
 			runActive = true
 		case "run_finished":
 			runActive = false
+			flushOpenTools()
 			var p runFinishedPayload
 			_ = json.Unmarshal(e.Payload, &p)
 			if p.State != "" {
@@ -122,6 +141,11 @@ func Compute(events []store.Event) RenderState {
 
 	if runActive {
 		rs.TailActivity = "running"
+	} else {
+		// Idle tail: no run is live, so nothing can still be executing. Resolve
+		// any tool left "running" by a run that ended without a run_finished
+		// (legacy data from before crash-safe finalization).
+		flushOpenTools()
 	}
 	return rs
 }

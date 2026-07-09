@@ -84,6 +84,17 @@ func PIDPath() (string, error) {
 	return filepath.Join(dir, pidName), nil
 }
 
+// LogPath returns the daemon log file path (~/.agent-master/daemon.log). The
+// service manager redirects the daemon's stdout/stderr here so slog output —
+// including panic stack traces — is inspectable instead of vanishing.
+func LogPath() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "daemon.log"), nil
+}
+
 // UploadsDir returns the per-session directory where pasted images are staged
 // for the agent to read (~/.agent-master/uploads/<sessionID>).
 func UploadsDir(sessionID string) (string, error) {

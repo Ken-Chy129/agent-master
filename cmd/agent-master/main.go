@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/Ken-Chy129/agent-master/internal/provider"
 	"github.com/Ken-Chy129/agent-master/internal/server"
 	"github.com/Ken-Chy129/agent-master/internal/service"
+	"github.com/Ken-Chy129/agent-master/internal/shellenv"
 	"github.com/Ken-Chy129/agent-master/internal/session"
 	"github.com/Ken-Chy129/agent-master/internal/store"
 	"github.com/Ken-Chy129/agent-master/internal/version"
@@ -97,6 +99,15 @@ func cmdServe(args []string) error {
 		cfg.Host = *host
 	}
 
+	// Import the user's interactive login-shell env (ANTHROPIC_*/CLAUDE_*) so the
+	// claude CLI we spawn uses the same auth/endpoint as the user's terminal.
+	// launchd/systemd start us without sourcing ~/.zshrc; non-fatal on failure.
+	if imported, err := shellenv.Import(); err != nil {
+		slog.Warn("shellenv import failed; claude will use its own credential lookup", "err", err)
+	} else if len(imported) > 0 {
+		slog.Info("imported env from login shell", "keys", strings.Join(imported, ","))
+	}
+
 	dbPath, err := config.DBPath()
 	if err != nil {
 		return err
@@ -109,6 +120,9 @@ func cmdServe(args []string) error {
 
 	claudeBin := resolveClaudeBin(cfg)
 	svc := session.NewService(st, provider.NewClaude(claudeBin))
+	// Heal runs orphaned by a previous process's abrupt exit (crash/restart mid-run)
+	// before serving, so sessions don't show a permanently-stuck "running" state.
+	svc.ReconcileStuckRuns()
 	srv := server.New(cfg, st, svc)
 	ln, err := srv.Listen()
 	if err != nil {
@@ -214,7 +228,12 @@ func cmdStart(_ []string) error {
 	// `start` is a common accident and shouldn't surface a scary launchctl
 	// error. We still reinstall when it's not responding (never started or
 	// crashed) or when a newer binary needs the service reloaded.
-	if ver, ok := probeHealth(cfg.Port); ok && ver == version.Version {
+	//
+	// Dev builds all report the same "0.0.1-dev", so version equality can't tell
+	// a rebuilt binary from the running one. Skipping the short-circuit there
+	// means `start` always reloads the on-disk binary — otherwise a fresh build
+	// would silently keep running the stale daemon.
+	if ver, ok := probeHealth(cfg.Port); ok && ver == version.Version && !isDevBuild() {
 		fmt.Println("✓ agent-master is already running.")
 		printConnectInfo(cfg)
 		return nil
@@ -226,6 +245,13 @@ func cmdStart(_ []string) error {
 	fmt.Println("✓ agent-master is running.")
 	printConnectInfo(cfg)
 	return nil
+}
+
+// isDevBuild reports whether this is an unversioned local build, where the
+// version string can't distinguish two different binaries — so `start` must not
+// treat a matching version as "already up to date".
+func isDevBuild() bool {
+	return version.Version == "" || strings.Contains(version.Version, "dev")
 }
 
 // printConnectInfo prints the shared "how to connect" block used by start.
