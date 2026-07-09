@@ -21,6 +21,7 @@ type Session = {
   title: string
   provider: string        // "claude"
   model: string           // "" = provider default
+  effort: string          // reasoning effort (low|medium|high|xhigh|max); "" = provider default
   workspaceDir: string
   createdAt: string       // RFC3339
   updatedAt: string
@@ -48,7 +49,7 @@ type WireEvent = {
 }
 
 type EventType =
-  | "user_message"      // { text: string }
+  | "user_message"      // { text: string, images?: { name, mediaType? }[] }
   | "assistant_message" // { text: string }
   | "tool_call"         // { name: string, id: string, input: unknown }
   | "tool_result"       // { id: string, output: unknown }
@@ -64,13 +65,14 @@ type EventType =
 | GET | `/health` | — | `{ status, version }` (public, no auth) |
 | GET | `/api/info` | — | `{ name, version, providers }` |
 | GET | `/api/sessions?limit=&offset=` | — | `{ sessions: RecentSession[], hasMore: boolean }` |
-| POST | `/api/sessions` | `{ workspaceDir, model?, title? }` | `Session` |
+| POST | `/api/sessions` | `{ workspaceDir, model?, effort?, title? }` | `Session` |
 | GET | `/api/sessions/{id}` | — | `Session` (404 if missing) |
 | PATCH | `/api/sessions/{id}` | `{ title }` | `Session` (400 empty title, 404 if missing) |
 | DELETE | `/api/sessions/{id}` | — | `{ ok: true }` |
 | GET | `/api/sessions/{id}/messages?before_seq=&limit=` | — | `{ events: WireEvent[], hasMore: boolean }` |
-| POST | `/api/sessions/{id}/send` | `{ message, clientIntentId? }` | `202 { runId }` (409 if a run is active) |
+| POST | `/api/sessions/{id}/send` | `{ message, model?, effort?, images?, clientIntentId? }` | `202 { runId }` (409 if a run is active) |
 | POST | `/api/sessions/{id}/interrupt` | — | `{ ok: true }` |
+| GET | `/api/models` | — | `{ models: ModelInfo[] }` |
 | GET | `/api/sessions/{id}/stream?after_seq=&token=` | — | SSE (below) |
 | GET | `/api/sessions/{id}/render` | — | `RenderState` (server-derived transcript snapshot) |
 
@@ -80,6 +82,14 @@ Notes:
   `before_seq` to page backward. `before_seq=0` (or omitted) = latest page.
 - `send` is idempotent on `clientIntentId`: repeating one returns the same run
   without starting a second.
+- `send.model` / `send.effort` are per-message overrides (omit to keep the
+  session's last-used value; a sent value becomes the new sticky default).
+  `send.images` is `{ name, mediaType, data }[]` where `data` is raw base64 (no
+  `data:` prefix); the daemon stages them to files the agent reads.
+- `/api/models` returns `ModelInfo = { id, label, description?, efforts? }`
+  where `id: ""` is the provider default and `efforts` lists the reasoning-effort
+  levels the model supports. Fetched live from the provider with a built-in
+  fallback.
 
 ## SSE stream
 

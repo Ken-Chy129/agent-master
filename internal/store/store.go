@@ -61,6 +61,7 @@ func (s *Store) migrate() error {
 		`ALTER TABLE recent_sessions ADD COLUMN last_run_state TEXT`,
 		`ALTER TABLE recent_sessions ADD COLUMN workspace_dir TEXT`,
 		`ALTER TABLE recent_sessions ADD COLUMN created_at TEXT`,
+		`ALTER TABLE sessions ADD COLUMN effort TEXT`,
 	} {
 		if _, err := s.DB.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("migrate: %w", err)
@@ -86,6 +87,7 @@ var schemaStatements = []string{
 		title             TEXT,
 		provider          TEXT NOT NULL DEFAULT 'claude',
 		model             TEXT,
+		effort            TEXT,
 		workspace_dir     TEXT NOT NULL,
 		native_session_id TEXT,
 		created_at        TEXT NOT NULL,

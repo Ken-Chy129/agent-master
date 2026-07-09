@@ -208,17 +208,34 @@ func cmdStart(_ []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Idempotent: if the daemon is already serving this version, don't tear it
+	// down and re-bootstrap — just reprint the connection info. Re-running
+	// `start` is a common accident and shouldn't surface a scary launchctl
+	// error. We still reinstall when it's not responding (never started or
+	// crashed) or when a newer binary needs the service reloaded.
+	if ver, ok := probeHealth(cfg.Port); ok && ver == version.Version {
+		fmt.Println("✓ agent-master is already running.")
+		printConnectInfo(cfg)
+		return nil
+	}
+
 	if err := service.Install(); err != nil {
 		return err
 	}
 	fmt.Println("✓ agent-master is running.")
+	printConnectInfo(cfg)
+	return nil
+}
+
+// printConnectInfo prints the shared "how to connect" block used by start.
+func printConnectInfo(cfg *config.Config) {
 	fmt.Println()
 	fmt.Println("Add this machine in your client:")
 	fmt.Printf("  URL     %s\n", candidateBaseURLs(cfg)[0])
 	fmt.Printf("  Token   %s\n", cfg.Token)
 	fmt.Println()
 	fmt.Println("More addresses / QR to pair a phone:  agent-master pair")
-	return nil
 }
 
 func cmdStop(_ []string) error {

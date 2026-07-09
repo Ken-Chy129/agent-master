@@ -25,6 +25,9 @@ func (fakeProvider) Type() string { return "claude" }
 func (fakeProvider) Run(_ context.Context, _ provider.RunOptions, _ func(provider.StreamEvent)) (provider.RunResult, error) {
 	return provider.RunResult{NativeSessionID: "fake"}, nil
 }
+func (fakeProvider) Models(_ context.Context) ([]provider.ModelInfo, error) {
+	return []provider.ModelInfo{{ID: "sonnet", Label: "Sonnet"}}, nil
+}
 
 const testToken = "test-token-123"
 

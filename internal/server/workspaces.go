@@ -64,7 +64,16 @@ func (s *Server) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 		}
 		entries = append(entries, workspaceEntry{Name: d.Name(), Path: filepath.Join(clean, d.Name())})
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+	// Case-insensitive so "Documents" and "apps" interleave alphabetically
+	// instead of ASCII order putting all capitalized names first. Ties (same
+	// name ignoring case) fall back to the raw comparison for a stable order.
+	sort.Slice(entries, func(i, j int) bool {
+		li, lj := strings.ToLower(entries[i].Name), strings.ToLower(entries[j].Name)
+		if li != lj {
+			return li < lj
+		}
+		return entries[i].Name < entries[j].Name
+	})
 
 	parent := filepath.Dir(clean)
 	if parent == clean || (len(roots) > 0 && !s.workspaceAllowed(parent)) {

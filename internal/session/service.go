@@ -12,8 +12,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
+	"github.com/Ken-Chy129/agent-master/internal/config"
 	"github.com/Ken-Chy129/agent-master/internal/provider"
 	"github.com/Ken-Chy129/agent-master/internal/store"
 )
@@ -57,6 +61,7 @@ type CreateSessionInput struct {
 	Title        string
 	WorkspaceDir string
 	Model        string
+	Effort       string
 }
 
 // CreateSession creates a new session.
@@ -66,6 +71,7 @@ func (s *Service) CreateSession(in CreateSessionInput) (store.Session, error) {
 		Title:        in.Title,
 		Provider:     s.prov.Type(),
 		Model:        in.Model,
+		Effort:       in.Effort,
 		WorkspaceDir: in.WorkspaceDir,
 	}
 	if sess.Title == "" {
@@ -80,6 +86,11 @@ func (s *Service) CreateSession(in CreateSessionInput) (store.Session, error) {
 // GetSession returns a session by id.
 func (s *Service) GetSession(id string) (store.Session, error) { return s.store.GetSession(id) }
 
+// Models returns the provider's selectable models (with effort support).
+func (s *Service) Models(ctx context.Context) ([]provider.ModelInfo, error) {
+	return s.prov.Models(ctx)
+}
+
 // ListSessions returns the recent-session projection and whether more exist.
 func (s *Service) ListSessions(limit, offset int) ([]store.RecentSession, bool, error) {
 	return s.store.ListRecent(limit, offset)
@@ -88,6 +99,9 @@ func (s *Service) ListSessions(limit, offset int) ([]store.RecentSession, bool, 
 // DeleteSession interrupts any active run and removes the session.
 func (s *Service) DeleteSession(id string) error {
 	_ = s.Interrupt(id)
+	if dir, err := config.UploadsDir(id); err == nil {
+		_ = os.RemoveAll(dir) // best-effort cleanup of staged images
+	}
 	return s.store.DeleteSession(id)
 }
 
@@ -119,20 +133,56 @@ func (s *Service) Subscribe(sessionID string) (int, <-chan Frame) {
 // Unsubscribe removes a live SSE listener.
 func (s *Service) Unsubscribe(sessionID string, id int) { s.bc.unsubscribe(sessionID, id) }
 
+// ImageUpload is one image attached to a send, already base64-decoded.
+type ImageUpload struct {
+	Name      string
+	MediaType string
+	Data      []byte
+}
+
+// SendInput is a user turn. Model/Effort are per-message overrides: nil keeps
+// the session's last-used value; non-nil (including "") is authoritative and
+// becomes the new sticky default.
+type SendInput struct {
+	Message        string
+	Model          *string
+	Effort         *string
+	Images         []ImageUpload
+	ClientIntentID string
+}
+
 // Send starts a run for a user message. It returns the run id immediately; the
 // provider runs asynchronously and streams events into the ledger.
-func (s *Service) Send(sessionID, message, clientIntentID string) (string, error) {
+func (s *Service) Send(sessionID string, in SendInput) (string, error) {
 	sess, err := s.store.GetSession(sessionID)
 	if err != nil {
 		return "", err
 	}
 
 	// Idempotency: a repeated client intent returns the original run.
-	if clientIntentID != "" {
-		if existing, err := s.store.IntentRun(sessionID, clientIntentID); err == nil && existing != "" {
+	if in.ClientIntentID != "" {
+		if existing, err := s.store.IntentRun(sessionID, in.ClientIntentID); err == nil && existing != "" {
 			return existing, nil
 		}
 	}
+
+	// Resolve per-message model/effort against the session's last-used values,
+	// and persist any change so it sticks for the next turn and the header.
+	if in.Model != nil {
+		sess.Model = *in.Model
+	}
+	if in.Effort != nil {
+		sess.Effort = *in.Effort
+	}
+	if (in.Model != nil || in.Effort != nil) && (sess.Model != "" || sess.Effort != "" || in.Model != nil || in.Effort != nil) {
+		if err := s.store.UpdateSessionModel(sessionID, sess.Model, sess.Effort); err != nil {
+			slog.Error("update session model", "err", err)
+		}
+	}
+
+	// Stage attached images to local files the agent can read. Best-effort:
+	// staging failures drop the images rather than failing the whole turn.
+	images, imageMeta := s.stageImages(sessionID, in.Images)
 
 	s.mu.Lock()
 	if _, busy := s.active[sessionID]; busy {
@@ -144,22 +194,73 @@ func (s *Service) Send(sessionID, message, clientIntentID string) (string, error
 	s.active[sessionID] = cancel
 	s.mu.Unlock()
 
-	if clientIntentID != "" {
-		if err := s.store.PutIntent(sessionID, clientIntentID, runID); err != nil {
+	if in.ClientIntentID != "" {
+		if err := s.store.PutIntent(sessionID, in.ClientIntentID, runID); err != nil {
 			slog.Error("put intent", "err", err)
 		}
 	}
 
-	// Commit the user turn and run-start before doing any provider work.
-	s.commit(sessionID, "user_message", runID, map[string]any{"text": message})
+	// Commit the user turn and run-start before doing any provider work. The
+	// stored text is what the user typed; image references are separate so the
+	// transcript renders cleanly (the provider gets the read-file augmentation).
+	userPayload := map[string]any{"text": in.Message}
+	if len(imageMeta) > 0 {
+		userPayload["images"] = imageMeta
+	}
+	s.commit(sessionID, "user_message", runID, userPayload)
 	s.commit(sessionID, "run_started", runID, map[string]any{"runId": runID})
 	if err := s.store.CreateRun(runID, sessionID); err != nil {
 		slog.Error("create run", "err", err)
 	}
-	s.touchRecent(sessionID, preview(message), runID, runRunning)
+	s.touchRecent(sessionID, preview(in.Message), runID, runRunning)
 
-	go s.runProvider(ctx, cancel, sess, runID, message)
+	go s.runProvider(ctx, cancel, sess, runID, in.Message, images)
 	return runID, nil
+}
+
+// imageMeta is the per-image metadata persisted in the user_message payload so
+// history can show which images were attached.
+type imageMeta struct {
+	Name      string `json:"name"`
+	MediaType string `json:"mediaType,omitempty"`
+	File      string `json:"file,omitempty"` // staged basename, for serving back
+}
+
+// stageImages writes each upload to the session's uploads dir and returns the
+// provider inputs plus the metadata to persist. Best-effort per image.
+func (s *Service) stageImages(sessionID string, uploads []ImageUpload) ([]provider.ImageInput, []imageMeta) {
+	if len(uploads) == 0 {
+		return nil, nil
+	}
+	dir, err := config.UploadsDir(sessionID)
+	if err != nil {
+		slog.Error("uploads dir", "err", err)
+		return nil, nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		slog.Error("mkdir uploads", "err", err)
+		return nil, nil
+	}
+	var inputs []provider.ImageInput
+	var meta []imageMeta
+	for i, up := range uploads {
+		if len(up.Data) == 0 {
+			continue
+		}
+		name := sanitizeFilename(up.Name)
+		if name == "" {
+			name = fmt.Sprintf("image-%d%s", i+1, extForMediaType(up.MediaType))
+		}
+		stagedName := fmt.Sprintf("%s-%s", newID("img"), name)
+		path := filepath.Join(dir, stagedName)
+		if err := os.WriteFile(path, up.Data, 0o644); err != nil {
+			slog.Error("write image", "err", err)
+			continue
+		}
+		inputs = append(inputs, provider.ImageInput{Path: path, Name: name, MediaType: up.MediaType})
+		meta = append(meta, imageMeta{Name: name, MediaType: up.MediaType, File: stagedName})
+	}
+	return inputs, meta
 }
 
 // Interrupt cancels a session's active run, if any.
@@ -174,7 +275,7 @@ func (s *Service) Interrupt(sessionID string) error {
 	return nil
 }
 
-func (s *Service) runProvider(ctx context.Context, cancel context.CancelFunc, sess store.Session, runID, message string) {
+func (s *Service) runProvider(ctx context.Context, cancel context.CancelFunc, sess store.Session, runID, message string, images []provider.ImageInput) {
 	defer func() {
 		s.mu.Lock()
 		delete(s.active, sess.ID)
@@ -214,6 +315,8 @@ func (s *Service) runProvider(ctx context.Context, cancel context.CancelFunc, se
 		Message:         message,
 		WorkspaceDir:    sess.WorkspaceDir,
 		Model:           sess.Model,
+		Effort:          sess.Effort,
+		Images:          images,
 		NativeSessionID: sess.NativeSessionID,
 	}, onEvent)
 
@@ -271,6 +374,40 @@ func preview(s string) string {
 		return string(r[:max]) + "…"
 	}
 	return s
+}
+
+// sanitizeFilename strips path separators and control/space runs so a
+// client-supplied image name is safe to use inside the uploads directory.
+func sanitizeFilename(name string) string {
+	name = filepath.Base(strings.TrimSpace(name))
+	if name == "." || name == ".." || name == "/" {
+		return ""
+	}
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || strings.ContainsRune(`/\:*?"<>|`, r) {
+			return '-'
+		}
+		return r
+	}, name)
+	if len(name) > 80 {
+		name = name[len(name)-80:]
+	}
+	return name
+}
+
+func extForMediaType(mt string) string {
+	switch mt {
+	case "image/png":
+		return ".png"
+	case "image/jpeg", "image/jpg":
+		return ".jpg"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ".png"
+	}
 }
 
 func newID(prefix string) string {

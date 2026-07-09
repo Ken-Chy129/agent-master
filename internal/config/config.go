@@ -84,6 +84,16 @@ func PIDPath() (string, error) {
 	return filepath.Join(dir, pidName), nil
 }
 
+// UploadsDir returns the per-session directory where pasted images are staged
+// for the agent to read (~/.agent-master/uploads/<sessionID>).
+func UploadsDir(sessionID string) (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "uploads", sessionID), nil
+}
+
 // Default builds a config with a freshly generated token.
 func Default() (*Config, error) {
 	tok, err := generateToken()
