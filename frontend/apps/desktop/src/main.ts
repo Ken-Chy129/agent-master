@@ -260,6 +260,23 @@ function createWindow(): void {
     return { action: 'deny' };
   });
 
+  // Safety net: an in-page <a> click without target=_blank triggers a
+  // navigation rather than a window-open. Keep the shell on its own origin and
+  // send cross-origin http/https links to the OS browser instead of loading
+  // them here. Same-origin navigations (e.g. the Vite dev server) are left be.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!/^https?:\/\//i.test(url)) return;
+    try {
+      const currentOrigin = new URL(mainWindow?.webContents.getURL() ?? '').origin;
+      if (new URL(url).origin !== currentOrigin) {
+        event.preventDefault();
+        void shell.openExternal(url);
+      }
+    } catch {
+      /* ignore malformed URLs */
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
