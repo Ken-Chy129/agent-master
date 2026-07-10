@@ -7,6 +7,7 @@ import { EMPTY_RENDER, useStore } from '../store.js';
 import type { ImageRef } from '@agent-master/core';
 import { Composer } from './Composer.js';
 import {
+  IconArrowDown,
   IconCheck,
   IconChevronRight,
   IconCopy,
@@ -62,6 +63,9 @@ export function Conversation() {
   // Stick-to-bottom autoscroll: follow new content only while the user is
   // already near the bottom, so reading history during a run isn't hijacked.
   const stickRef = useRef(true);
+  // Reactive mirror of stickRef, used to show the jump-to-bottom button when
+  // the user has scrolled up away from the latest content.
+  const [atBottom, setAtBottom] = useState(true);
 
   const items = useMemo(() => groupRows(render.rows), [render.rows]);
 
@@ -101,6 +105,12 @@ export function Conversation() {
     return map;
   }, [items, runActive]);
 
+  // Opening a session snaps to the bottom, so re-arm stick and hide the button.
+  useEffect(() => {
+    stickRef.current = true;
+    setAtBottom(true);
+  }, [currentSessionId]);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
@@ -121,7 +131,17 @@ export function Conversation() {
 
   const onScroll = () => {
     const el = scrollRef.current;
-    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    stickRef.current = near;
+    setAtBottom(near);
+  };
+
+  const scrollToBottom = () => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    stickRef.current = true;
+    setAtBottom(true);
   };
 
   const columnCollapsed = useStore((s) => s.sessionColumnCollapsed);
@@ -224,6 +244,16 @@ export function Conversation() {
           </div>
         </div>
       </div>
+
+      {!atBottom && (
+        <button
+          onClick={scrollToBottom}
+          title="回到底部"
+          className="absolute right-6 bottom-32 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface text-ink-muted shadow-md transition-colors hover:text-ink"
+        >
+          <IconArrowDown size={16} />
+        </button>
+      )}
 
       {lightbox && (
         <div

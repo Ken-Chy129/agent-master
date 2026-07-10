@@ -32,6 +32,23 @@ interface PendingImage {
 
 let pendingSeq = 0;
 
+// Per-session text drafts, kept module-level (non-reactive) so switching away
+// from a session and back restores whatever was typed but not yet sent.
+const draftBySession = new Map<string, string>();
+
+// Per-session staged-image drafts. Same idea as the text draft, but the object
+// URLs backing the thumbnails must stay alive across the switch — so unlike a
+// send/remove, switching sessions never revokes them; it just parks the array
+// here and swaps in the target session's. URLs are only revoked when the image
+// is actually removed or its message is sent.
+const imageDraftBySession = new Map<string, PendingImage[]>();
+
+function saveImageDraft(sessionId: string | null, imgs: PendingImage[]): void {
+  if (!sessionId) return;
+  if (imgs.length > 0) imageDraftBySession.set(sessionId, imgs);
+  else imageDraftBySession.delete(sessionId);
+}
+
 /** Read a File into raw base64 (strips the data: prefix). */
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -71,21 +88,36 @@ export function Composer() {
   const [effort, setEffort] = useState('');
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  // Latest images, for a leak-free unmount cleanup without re-subscribing.
+  // Latest images + session id, read by handlers that run after awaits or on
+  // unmount without re-subscribing.
   const imagesRef = useRef<PendingImage[]>([]);
   imagesRef.current = images;
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
 
-  // Reset the draft (text + images + picks) whenever the open session changes —
-  // drafts must not carry across sessions.
+  // On session switch: restore that session's saved text + image drafts (empty
+  // if none), reset the per-message picks, then focus the composer so the user
+  // can start typing right away. Model/effort get re-seeded from meta by the
+  // effect below. Note we do NOT revoke the outgoing images' URLs here — they're
+  // parked (by add/remove) under the previous session and must survive so its
+  // thumbnails still render when the user comes back.
   useEffect(() => {
-    setText('');
+    setText(sessionId ? (draftBySession.get(sessionId) ?? '') : '');
     setModel('');
     setEffort('');
-    if (taRef.current) taRef.current.style.height = 'auto';
-    setImages((prev) => {
-      prev.forEach((img) => URL.revokeObjectURL(img.url));
-      return [];
+    setImages(sessionId ? (imageDraftBySession.get(sessionId) ?? []) : []);
+    // Size the textarea to the restored draft, focus it, and park the caret at
+    // the end — after React commits the restored value to the DOM.
+    const raf = requestAnimationFrame(() => {
+      const ta = taRef.current;
+      if (!ta) return;
+      ta.style.height = 'auto';
+      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      ta.focus();
+      const end = ta.value.length;
+      ta.setSelectionRange(end, end);
     });
+    return () => cancelAnimationFrame(raf);
   }, [sessionId]);
 
   // Seed model/effort from the session's last-used values once its metadata
@@ -98,8 +130,15 @@ export function Composer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meta?.id]);
 
-  // Revoke any lingering object URLs on unmount.
-  useEffect(() => () => imagesRef.current.forEach((img) => URL.revokeObjectURL(img.url)), []);
+  // On unmount (leaving the conversation entirely), park the current staged
+  // images under their session so reopening it restores them. We intentionally
+  // don't revoke here — the parked URLs must stay valid for that restore. Unsent
+  // drafts for sessions that are never revisited are the one bounded leak, freed
+  // on tab close.
+  useEffect(
+    () => () => saveImageDraft(sessionIdRef.current, imagesRef.current),
+    [],
+  );
 
   const selectedModel = models?.find((m) => m.id === model);
   // undefined (default model) → allow all; [] (known no support) → hide.
@@ -118,31 +157,34 @@ export function Composer() {
 
   const addFiles = async (files: FileList | File[]) => {
     const imgs = Array.from(files).filter((f) => f.type.startsWith('image/'));
+    const added: PendingImage[] = [];
     for (const file of imgs) {
       try {
-        const data = await fileToBase64(file);
-        setImages((prev) => [
-          ...prev,
-          {
-            id: `img-${pendingSeq++}`,
-            name: file.name || `pasted-${pendingSeq}.png`,
-            mediaType: file.type || 'image/png',
-            data,
-            url: URL.createObjectURL(file),
-          },
-        ]);
+        added.push({
+          id: `img-${pendingSeq++}`,
+          name: file.name || `pasted-${pendingSeq}.png`,
+          mediaType: file.type || 'image/png',
+          data: await fileToBase64(file),
+          url: URL.createObjectURL(file),
+        });
       } catch {
         // Skip an unreadable file rather than failing the whole paste.
       }
     }
+    if (added.length === 0) return;
+    // imagesRef is kept current every render, so it reflects any images added by
+    // an earlier concurrent call while this one was awaiting.
+    const next = [...imagesRef.current, ...added];
+    setImages(next);
+    saveImageDraft(sessionIdRef.current, next);
   };
 
   const removeImage = (id: string) => {
-    setImages((prev) => {
-      const gone = prev.find((i) => i.id === id);
-      if (gone) URL.revokeObjectURL(gone.url);
-      return prev.filter((i) => i.id !== id);
-    });
+    const gone = imagesRef.current.find((i) => i.id === id);
+    if (gone) URL.revokeObjectURL(gone.url);
+    const next = imagesRef.current.filter((i) => i.id !== id);
+    setImages(next);
+    saveImageDraft(sessionIdRef.current, next);
   };
 
   const onModelChange = (next: string) => {
@@ -162,8 +204,10 @@ export function Composer() {
     }));
     setSending(true);
     setText('');
+    if (sessionId) draftBySession.delete(sessionId);
     images.forEach((img) => URL.revokeObjectURL(img.url));
     setImages([]);
+    saveImageDraft(sessionId, []);
     if (taRef.current) taRef.current.style.height = 'auto';
     try {
       await sendMessage(value, { model, effort, images: toSend });
@@ -228,7 +272,9 @@ export function Composer() {
             ref={taRef}
             value={text}
             onChange={(e) => {
-              setText(e.target.value);
+              const v = e.target.value;
+              setText(v);
+              if (sessionId) draftBySession.set(sessionId, v);
               autoGrow();
             }}
             onKeyDown={onKeyDown}

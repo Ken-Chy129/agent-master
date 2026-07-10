@@ -204,8 +204,18 @@ summary:focus-visible,
   margin: 0.55em 0;
   padding-left: 1.4em;
 }
+/* Tailwind's preflight resets list-style to none; restore markers for prose. */
+.md ul {
+  list-style: disc;
+}
+.md ol {
+  list-style: decimal;
+}
 .md li {
   margin: 0.3em 0;
+}
+.md li::marker {
+  color: var(--am-ink-faint);
 }
 .md li > p {
   margin: 0.2em 0;
