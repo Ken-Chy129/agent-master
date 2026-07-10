@@ -289,6 +289,35 @@ func (s *Store) EventsBefore(sessionID string, beforeSeq int64, limit int) ([]Ev
 	return desc, hasMore, nil
 }
 
+// EventsTail returns the most recent `limit` events for a session in ascending
+// seq order. render uses this instead of EventsAfter-from-0 so tailActivity and
+// the visible transcript always reflect the live tail. A session longer than the
+// window otherwise renders from its OLDEST events (EventsAfter caps the limit and
+// scans ascending), freezing the run state in the past — e.g. stuck "running"
+// forever because the settling run_finished fell just outside the window. Older
+// history is paginated separately via EventsBefore.
+func (s *Store) EventsTail(sessionID string, limit int) ([]Event, error) {
+	if limit <= 0 || limit > 5000 {
+		limit = 2000
+	}
+	rows, err := s.DB.Query(
+		`SELECT seq,type,run_id,payload,created_at FROM events
+		 WHERE session_id=? ORDER BY seq DESC LIMIT ?`, sessionID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	desc, err := scanEvents(rows, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	// Reverse to ascending (render expects chronological order).
+	for i, j := 0, len(desc)-1; i < j; i, j = i+1, j-1 {
+		desc[i], desc[j] = desc[j], desc[i]
+	}
+	return desc, nil
+}
+
 // IntentRun returns the run id previously associated with a client intent, or
 // "" if none.
 func (s *Store) IntentRun(sessionID, intentID string) (string, error) {
@@ -382,6 +411,64 @@ func (s *Store) RunningRuns() ([]RunRef, error) {
 		if err := rows.Scan(&r.ID, &r.SessionID); err != nil {
 			return nil, err
 		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// DanglingRun returns the run id of a session's latest run boundary event when
+// that event is a run_started with no run_finished after it — i.e. the ledger
+// tail renders as "running". Returns "" when the tail is settled. This is the
+// ledger-authoritative check: render derives tailActivity purely from the
+// run_started/run_finished sequence, so this is exactly what shows the session
+// as running, independent of whether the runs table agrees (a run_started is
+// committed before its runs row is created, so the two can diverge).
+func (s *Store) DanglingRun(sessionID string) (string, error) {
+	var runID sql.NullString
+	var typ string
+	err := s.DB.QueryRow(
+		`SELECT run_id, type FROM events
+		 WHERE session_id=? AND type IN ('run_started','run_finished')
+		 ORDER BY seq DESC LIMIT 1`, sessionID,
+	).Scan(&runID, &typ)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if typ != "run_started" {
+		return "", nil
+	}
+	return runID.String, nil
+}
+
+// DanglingRuns returns, for every session whose ledger tail renders as running
+// (see DanglingRun), the dangling run id and its session. Used at startup to
+// settle sessions left running by a previous process, ledger-authoritatively.
+func (s *Store) DanglingRuns() ([]RunRef, error) {
+	rows, err := s.DB.Query(
+		`SELECT e.session_id, e.run_id
+		 FROM events e
+		 JOIN (
+		   SELECT session_id, MAX(seq) AS ms FROM events
+		   WHERE type IN ('run_started','run_finished')
+		   GROUP BY session_id
+		 ) m ON e.session_id=m.session_id AND e.seq=m.ms
+		 WHERE e.type='run_started'`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RunRef
+	for rows.Next() {
+		var r RunRef
+		var runID sql.NullString
+		if err := rows.Scan(&r.SessionID, &runID); err != nil {
+			return nil, err
+		}
+		r.ID = runID.String
 		out = append(out, r)
 	}
 	return out, rows.Err()
