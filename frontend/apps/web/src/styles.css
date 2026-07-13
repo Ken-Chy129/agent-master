@@ -240,6 +240,58 @@ body {
   background: var(--am-raised);
 }
 
+.composer-card {
+  border-color: color-mix(in srgb, var(--am-border-strong) 82%, transparent);
+  box-shadow:
+    0 14px 40px rgba(22, 31, 43, 0.09),
+    0 2px 8px rgba(22, 31, 43, 0.04);
+}
+
+.composer-card:focus-within {
+  border-color: color-mix(in srgb, var(--am-accent) 72%, var(--am-border));
+  box-shadow:
+    0 16px 44px rgba(22, 31, 43, 0.11),
+    0 0 0 3px color-mix(in srgb, var(--am-accent) 9%, transparent);
+}
+
+.composer-card-dragging {
+  border-color: var(--am-accent);
+  transform: translateY(-2px);
+}
+
+.composer-icon-button:hover,
+.composer-stop:hover {
+  color: var(--am-ink);
+  background: var(--am-raised);
+}
+
+.composer-select {
+  color: var(--am-ink-muted);
+  border: 1px solid transparent;
+  background: var(--am-raised);
+}
+
+.composer-select:hover,
+.composer-select:focus {
+  color: var(--am-ink);
+  border-color: var(--am-border-strong);
+}
+
+.composer-send:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.03);
+  filter: brightness(1.06);
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--am-accent) 28%, transparent);
+}
+
+.composer-stop {
+  border: 1px solid color-mix(in srgb, var(--am-danger) 45%, var(--am-border));
+}
+
+.composer-stop:hover {
+  color: var(--am-danger);
+  background: var(--am-danger-soft);
+}
+
 @media (max-width: 720px) {
   .overview-signal-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
