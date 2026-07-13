@@ -146,6 +146,9 @@ export function Conversation() {
 
   const columnCollapsed = useStore((s) => s.sessionColumnCollapsed);
   const toggleColumn = useStore((s) => s.toggleSessionColumn);
+  const projectName = currentSessionMeta?.workspaceDir
+    ? currentSessionMeta.workspaceDir.replace(/\/+$/, '').split('/').filter(Boolean).pop()
+    : null;
 
   const connecting = streamStatus === 'connecting' && render.rows.length === 0;
 
@@ -179,36 +182,47 @@ export function Conversation() {
             <IconPanelLeft size={15} />
           </button>
         )}
-        <div className="min-w-0">
-          <div className="truncate text-[13px] font-semibold">
-            {currentSessionMeta?.title || '会话'}
+        <div className="min-w-0 flex-1">
+          <div className="mb-0.5 flex items-center gap-1.5 font-mono text-[9.5px] tracking-[0.06em] text-ink-faint uppercase">
+            <span className="truncate">{machine?.name ?? 'Machine'}</span>
+            <span aria-hidden="true">/</span>
+            <span className="truncate">{projectName ?? 'Workspace'}</span>
           </div>
-          <div className="truncate font-mono text-[10.5px] text-ink-faint">
-            {currentSessionMeta
-              ? `${currentSessionMeta.workspaceDir}${
-                  currentSessionMeta.model ? ` · ${currentSessionMeta.model}` : ''
-                }`
-              : '…'}
+          <div className="truncate text-[13.5px] font-semibold tracking-[-0.01em]">
+            {currentSessionMeta?.title || '会话'}
           </div>
         </div>
         <div className="ml-auto flex flex-none items-center gap-2">
-          <StreamIndicator status={streamStatus} />
+          {currentSessionMeta?.model && (
+            <span className="rounded-md border border-border bg-raised/65 px-2 py-1 font-mono text-[9.5px] text-ink-muted">
+              {currentSessionMeta.model}
+              {currentSessionMeta.effort ? ` · ${currentSessionMeta.effort}` : ''}
+            </span>
+          )}
+          <RunIndicator active={runActive} status={streamStatus} />
         </div>
       </header>
 
       {/* One full-height scroll area: its scrollbar runs the whole panel in its
           own column (never covered), and the composer sticks to the bottom as
           in-flow content — messages scroll cleanly under its opaque bar. */}
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="conversation-scroll min-h-0 flex-1 overflow-y-auto"
+      >
         <div className="flex min-h-full flex-col">
           <div className="flex-1">
-            <div className="mx-auto flex max-w-[52rem] flex-col gap-4 px-5 pt-6">
+            <div className="mx-auto flex max-w-[54rem] flex-col gap-5 px-6 pt-7">
               {connecting && <div className="py-10 text-center text-sm text-ink-muted">加载中…</div>}
               {!connecting && render.rows.length === 0 && (
-                <div className="py-14 text-center">
-                  <div className="text-sm font-medium">开始一个任务</div>
-                  <p className="mt-1 text-xs text-ink-muted">
-                    在下方描述要做的事，agent 会在这个工作目录里执行。
+                <div className="mx-auto flex max-w-sm flex-col items-center py-16 text-center">
+                  <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-surface text-ink-muted shadow-sm">
+                    <IconTerminal size={17} />
+                  </span>
+                  <div className="text-sm font-semibold">从这里开始</div>
+                  <p className="mt-1.5 text-xs leading-relaxed text-ink-muted">
+                    描述目标、贴上截图或文件路径，Agent 会直接在当前工作区执行。
                   </p>
                 </div>
               )}
@@ -232,14 +246,17 @@ export function Conversation() {
                 </div>
               )}
               {thinking && (
-                <div className="flex items-center gap-2 self-start py-1 text-sm text-ink-muted">
+                <div className="activity-pill flex items-center gap-2 self-start text-[12.5px] text-ink-muted">
                   <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-accent" />
-                  <span>正在思考{elapsed > 0 ? ` · ${fmtElapsed(elapsed)}` : '…'}</span>
+                  <span>Agent 正在思考</span>
+                  {elapsed > 0 && (
+                    <span className="font-mono text-[10.5px] text-ink-faint">{fmtElapsed(elapsed)}</span>
+                  )}
                 </div>
               )}
             </div>
           </div>
-          <div className="sticky bottom-0 bg-canvas">
+          <div className="composer-dock sticky bottom-0">
             <Composer />
           </div>
         </div>
@@ -279,13 +296,25 @@ export function Conversation() {
   );
 }
 
-/** Shows the SSE connection state only when it's not cleanly open. */
-function StreamIndicator({ status }: { status: string }) {
-  if (status !== 'connecting' && status !== 'error') return null;
+/** Compact combined run + connection signal for the conversation header. */
+function RunIndicator({ active, status }: { active: boolean; status: string }) {
+  if (!active && status !== 'connecting' && status !== 'error') return null;
+  const label =
+    status === 'error' ? '正在重连' : status === 'connecting' ? '连接中' : active ? '运行中' : '在线';
   return (
-    <span className="flex items-center gap-1.5 rounded-full bg-warn-soft px-2.5 py-0.5 text-[11px] text-warn">
-      <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-warn-solid" />
-      {status === 'connecting' ? '连接中' : '重连中'}
+    <span
+      className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[10.5px] font-medium ${
+        status === 'error' || status === 'connecting'
+          ? 'bg-warn-soft text-warn'
+          : 'bg-accent-soft text-accent'
+      }`}
+    >
+      <span
+        className={`pulse-dot h-1.5 w-1.5 rounded-full ${
+          status === 'error' || status === 'connecting' ? 'bg-warn-solid' : 'bg-accent'
+        }`}
+      />
+      {label}
     </span>
   );
 }
@@ -415,7 +444,7 @@ function UserRow({
           <div
             ref={bodyRef}
             style={expanded ? undefined : { maxHeight: USER_MSG_COLLAPSE_PX }}
-            className={`rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-base leading-[1.7] whitespace-pre-wrap [overflow-wrap:anywhere] ${
+            className={`user-message-bubble rounded-2xl rounded-br-md px-3.5 py-2 text-base leading-[1.7] whitespace-pre-wrap [overflow-wrap:anywhere] ${
               expanded ? '' : 'overflow-hidden'
             }`}
           >
@@ -480,7 +509,7 @@ function ToolGroup({ rows, footer }: { rows: RenderRow[]; footer?: TurnFooterDat
     <div className="w-full max-w-[95%] self-start">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left text-xs text-ink-muted transition-colors hover:bg-raised"
+        className="tool-summary flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-ink-muted transition-colors"
       >
         <IconTerminal size={13} className="flex-none text-ink-faint" />
         <span className="min-w-0 flex-1 truncate">

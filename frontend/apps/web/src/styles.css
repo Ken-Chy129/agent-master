@@ -205,6 +205,41 @@ body {
   border-color: color-mix(in srgb, var(--am-warn-solid) 34%, var(--am-border));
 }
 
+.conversation-scroll {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--am-canvas) 92%, transparent), transparent 8%, transparent 92%, color-mix(in srgb, var(--am-canvas) 92%, transparent)),
+    var(--am-canvas);
+}
+
+.composer-dock {
+  background: linear-gradient(to bottom, transparent, var(--am-canvas) 24px);
+}
+
+.user-message-bubble {
+  color: color-mix(in srgb, var(--am-ink) 92%, var(--am-accent));
+  background: color-mix(in srgb, var(--am-accent-soft) 70%, var(--am-raised));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--am-accent) 9%, transparent);
+}
+
+.activity-pill {
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid var(--am-border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--am-surface) 82%, transparent);
+  box-shadow: 0 4px 16px rgba(22, 31, 43, 0.035);
+}
+
+.tool-summary {
+  background: color-mix(in srgb, var(--am-surface) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--am-border) 70%, transparent);
+}
+
+.tool-summary:hover {
+  color: var(--am-ink);
+  background: var(--am-raised);
+}
+
 @media (max-width: 720px) {
   .overview-signal-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
