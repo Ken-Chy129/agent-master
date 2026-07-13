@@ -142,6 +142,84 @@ body {
   box-shadow: 0 0 12px color-mix(in srgb, var(--am-rail-accent) 70%, transparent);
 }
 
+.overview-canvas {
+  background:
+    radial-gradient(circle at 78% -10%, color-mix(in srgb, var(--am-accent) 7%, transparent), transparent 30rem),
+    var(--am-canvas);
+}
+
+.overview-title {
+  font-family: 'Avenir Next', var(--font-sans);
+}
+
+.overview-signal-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--am-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--am-surface) 92%, transparent);
+  box-shadow: 0 8px 30px rgba(22, 31, 43, 0.04);
+}
+
+.overview-signal-segment {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  border-left: 1px solid var(--am-border);
+}
+
+.overview-signal-segment:first-child {
+  border-left: 0;
+}
+
+.signal-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--am-ink-faint);
+}
+
+.signal-dot-success {
+  background: var(--am-success);
+}
+
+.signal-dot-warn {
+  background: var(--am-warn-solid);
+}
+
+.signal-dot-accent {
+  background: var(--am-accent);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--am-accent) 55%, transparent);
+}
+
+.task-lane,
+.machine-signal-panel {
+  box-shadow: 0 8px 28px rgba(22, 31, 43, 0.035);
+}
+
+.task-lane-warn {
+  border-color: color-mix(in srgb, var(--am-warn-solid) 34%, var(--am-border));
+}
+
+@media (max-width: 720px) {
+  .overview-signal-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overview-signal-segment:nth-child(3) {
+    border-left: 0;
+    border-top: 1px solid var(--am-border);
+  }
+
+  .overview-signal-segment:nth-child(4) {
+    border-top: 1px solid var(--am-border);
+  }
+}
+
 /*
  * Overlay-style scrollbars: a thin thumb over a transparent track, so the
  * scrollbar reads as a single bar with no track "border" strip beside it.
