@@ -32,6 +32,10 @@ func (fakeProvider) Models(_ context.Context) ([]provider.ModelInfo, error) {
 const testToken = "test-token-123"
 
 func newTestServer(t *testing.T) (*httptest.Server, string) {
+	return newTestServerWithWeb(t, http.NotFoundHandler())
+}
+
+func newTestServerWithWeb(t *testing.T, web http.Handler) (*httptest.Server, string) {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -41,11 +45,34 @@ func newTestServer(t *testing.T) (*httptest.Server, string) {
 
 	cfg := &config.Config{Host: "127.0.0.1", Port: 0, Token: testToken}
 	svc := session.NewService(st, fakeProvider{})
-	srv := New(cfg, st, svc)
+	srv := newServer(cfg, st, svc, web)
 
 	ts := httptest.NewServer(srv.http.Handler)
 	t.Cleanup(ts.Close)
 	return ts, ts.URL
+}
+
+func TestRootServesWebClientWithoutChangingAPI(t *testing.T) {
+	web := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, "<div>embedded web</div>")
+	})
+	_, base := newTestServerWithWeb(t, web)
+
+	resp, body := do(t, "GET", base+"/", "", "")
+	if resp.StatusCode != 200 || !strings.Contains(body, "embedded web") {
+		t.Fatalf("root = %d %q", resp.StatusCode, body)
+	}
+
+	resp, body = do(t, "GET", base+"/health", "", "")
+	if resp.StatusCode != 200 || !strings.Contains(body, `"status":"ok"`) {
+		t.Fatalf("health = %d %q", resp.StatusCode, body)
+	}
+
+	resp, _ = do(t, "GET", base+"/api/sessions", "", "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("API auth = %d, want 401", resp.StatusCode)
+	}
 }
 
 func do(t *testing.T, method, url, token, body string) (*http.Response, string) {

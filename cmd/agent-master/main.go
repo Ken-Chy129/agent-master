@@ -26,8 +26,8 @@ import (
 	"github.com/Ken-Chy129/agent-master/internal/provider"
 	"github.com/Ken-Chy129/agent-master/internal/server"
 	"github.com/Ken-Chy129/agent-master/internal/service"
-	"github.com/Ken-Chy129/agent-master/internal/shellenv"
 	"github.com/Ken-Chy129/agent-master/internal/session"
+	"github.com/Ken-Chy129/agent-master/internal/shellenv"
 	"github.com/Ken-Chy129/agent-master/internal/store"
 	"github.com/Ken-Chy129/agent-master/internal/version"
 )
@@ -283,12 +283,18 @@ func isDevBuild() bool {
 
 // printConnectInfo prints the shared "how to connect" block used by start.
 func printConnectInfo(cfg *config.Config) {
-	fmt.Println()
-	fmt.Println("Add this machine in your client:")
-	fmt.Printf("  URL     %s\n", candidateBaseURLs(cfg)[0])
-	fmt.Printf("  Token   %s\n", cfg.Token)
-	fmt.Println()
-	fmt.Println("More addresses / QR to pair a phone:  agent-master pair")
+	writeConnectInfo(os.Stdout, cfg)
+}
+
+func writeConnectInfo(w io.Writer, cfg *config.Config) {
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "Web UI  http://127.0.0.1:%d\n", cfg.Port)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Add this machine in the desktop app or another browser:")
+	fmt.Fprintf(w, "  URL     %s\n", candidateBaseURLs(cfg)[0])
+	fmt.Fprintf(w, "  Token   %s\n", cfg.Token)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "More addresses / QR to pair a phone:  agent-master pair")
 }
 
 func cmdStop(_ []string) error {

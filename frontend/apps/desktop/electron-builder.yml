@@ -5,8 +5,8 @@
 # (the `build`/`dist` npm scripts in this package do this for you). Packaging a
 # real macOS .dmg/.zip must be done ON macOS; the Windows installer on Windows.
 appId: com.agent-master.desktop
-productName: agent-master
-copyright: agent-master
+productName: Agent Master
+copyright: Agent Master
 
 # Pin the Electron version explicitly. In this npm-workspaces repo `electron` is
 # hoisted to the root node_modules, so electron-builder (run from this package
@@ -47,7 +47,7 @@ mac:
   # No Apple Developer cert in CI, so this is an unsigned build. electron-builder
   # applies an ad-hoc signature so the app still launches on Apple Silicon; users
   # clear the download quarantine once (`xattr -cr`, see the release notes).
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  artifactName: agent-master-${version}-${arch}.${ext}
   target:
     - target: dmg
       arch:
@@ -68,7 +68,7 @@ win:
   # Unsigned build (no code-signing cert in CI); SmartScreen will warn once on
   # first launch. agentmaster:// deep links are registered at runtime by
   # main.ts (setAsDefaultProtocolClient writes the per-user registry keys).
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  artifactName: agent-master-${version}-${arch}.${ext}
   target:
     - target: nsis
       arch:

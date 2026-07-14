@@ -1,0 +1,32 @@
+{
+  "name": "agent-master",
+  "version": "0.0.0-development",
+  "description": "Install and run the native agent-master daemon",
+  "type": "module",
+  "bin": {
+    "agent-master": "bin/agent-master.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "scripts/",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/install.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ken-Chy129/agent-master.git"
+  },
+  "homepage": "https://github.com/Ken-Chy129/agent-master",
+  "bugs": "https://github.com/Ken-Chy129/agent-master/issues",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

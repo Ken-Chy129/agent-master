@@ -52,6 +52,7 @@ agent-master/
 │   ├── render/              # ★ 服务端 render_state：Compute([]Event)→RenderState 纯函数 reducer；有单测
 │   ├── server/              # HTTP：server.go(路由) auth.go cors.go sessions.go stream.go(SSE+render) workspaces.go；有 httptest 单测
 │   ├── service/             # systemd(Linux)/launchd(macOS)/Run键自启(Windows) 服务安装
+│   ├── webui/               # Vite 生产产物的 Go embed + SPA 静态处理器
 │   └── version/             # 构建版本（ldflags 注入）
 ├── frontend/                # npm workspaces
 │   ├── packages/core/       # @agent-master/core（纯 TS：ApiClient/SseClient/types/machines）—— 三端契约的 TS 参考实现
@@ -63,7 +64,8 @@ agent-master/
 ├── docs/                    # DESIGN.md（架构）/ API.md（契约）/ HANDOFF.md（本文件）
 ├── install.sh               # GitHub Release 安装脚本（Linux/macOS）
 ├── install.ps1              # GitHub Release 安装脚本（Windows PowerShell）
-├── Makefile                 # build / release(交叉编译6平台) / test / vet
+├── npm/agent-master/        # npm 全局安装器（下载并校验对应平台原生二进制）
+├── Makefile                 # Web embed + build / release(交叉编译6平台) / test / vet
 └── README.md
 ```
 
@@ -140,18 +142,20 @@ Client            Go daemon                          claude CLI(子进程)
 
 **前提**：跑 daemon 的机器需装 `claude` 并已登录（`claude` 在 PATH，或 config 里 `claude_bin` 指定）。
 
-### 后端 daemon（Go）
+### daemon + 内嵌 Web（Go + Node 20）
 ```bash
-make build                    # → dist/agent-master（静态二进制）
+make build                    # 构建 Vite UI 并嵌入 dist/agent-master
 make test                     # go test ./...（store/server/render 单测）
 make release                  # 交叉编译 linux/darwin/windows × amd64/arm64 + sha256
-./dist/agent-master serve     # 前台运行，监听 :8888
+./dist/agent-master serve     # 前台运行；API + Web UI 监听 :8888
 ./dist/agent-master token     # 打印本机 token
 ./dist/agent-master pair      # 打印 URL/token/深链/二维码
 ./dist/agent-master start             # 装成后台服务并启动（systemd/launchd/Windows Run键；stop/restart/status/uninstall 同理）
 ```
 
-### 前端 Web
+生产 Web 直接访问 `http://127.0.0.1:8888`。开发前端仍可单独运行：
+
+### 前端 Web 开发
 ```bash
 cd frontend && npm install
 npm run typecheck             # 三 workspace tsc
@@ -191,7 +195,7 @@ cd android
 **近期可做（按价值）**
 1. **Android `:app` 在 Mac 上首次构建**：验证 Compose UI 真跑起来（`:core` 已测试，`:app` 是脚手架）。
 2. **桌面/Web 浏览器目视验证**：确认 UI 渲染、多机切换、目录选择、流式预览的实际效果。
-3. **发 GitHub Release**：`make release` 产物 + sha256 传到 Releases，让 `install.sh` 生效（别的机器一行安装）。CI（GitHub Actions）自动化交叉编译 + 发布。
+3. **首次发布 npm 包**：在 GitHub Actions 配置 `NPM_TOKEN` 后打新 tag；流水线会发布 `agent-master`，未配置 token 时仍会把 `.tgz` 附到 GitHub Release。
 4. **Codex provider**：实现 `provider.Provider` for `codex`（`codex app-server` JSON-RPC）。**注意本机无 codex CLI，无法验证**——需在有 codex 的机器上做。`internal/provider` 接口已预留。
 
 **render_state / 体验增强**
