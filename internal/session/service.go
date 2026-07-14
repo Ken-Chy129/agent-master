@@ -125,6 +125,12 @@ func (s *Service) EventsAfter(sessionID string, afterSeq int64, limit int) ([]st
 	return s.store.EventsAfter(sessionID, afterSeq, limit)
 }
 
+// EventsTail returns the most recent events for a session (ascending), used to
+// compute a render snapshot whose tail reflects the live state.
+func (s *Service) EventsTail(sessionID string, limit int) ([]store.Event, error) {
+	return s.store.EventsTail(sessionID, limit)
+}
+
 // Subscribe registers a live SSE listener. Frames are committed events (with a
 // seq) or live deltas (ephemeral).
 func (s *Service) Subscribe(sessionID string) (int, <-chan Frame) {
@@ -208,11 +214,17 @@ func (s *Service) Send(sessionID string, in SendInput) (string, error) {
 	if len(imageMeta) > 0 {
 		userPayload["images"] = imageMeta
 	}
+	// Create the runs row BEFORE committing run_started. render derives the
+	// "running" tail from the run_started ledger event, while reconcile/interrupt
+	// clean up via the runs table — so if the two ever diverge across a crash, the
+	// safe direction is a runs row without a ledger run_started (renders idle),
+	// never a run_started without a runs row (renders running forever, invisible to
+	// a table-based sweep). Ledger-authoritative recovery covers the rest.
 	s.commit(sessionID, "user_message", runID, userPayload)
-	s.commit(sessionID, "run_started", runID, map[string]any{"runId": runID})
 	if err := s.store.CreateRun(runID, sessionID); err != nil {
 		slog.Error("create run", "err", err)
 	}
+	s.commit(sessionID, "run_started", runID, map[string]any{"runId": runID})
 	s.touchRecent(sessionID, preview(in.Message), runID, runRunning)
 
 	go s.runProvider(ctx, cancel, sess, runID, in.Message, images)
@@ -280,26 +292,26 @@ func (s *Service) Interrupt(sessionID string) error {
 	return nil
 }
 
-// finalizeOrphanRun commits run_finished(interrupted) for a session's dangling
-// run (running in the ledger, but with no live cancel in this process). No-op if
-// the session has no running run.
+// finalizeOrphanRun settles a session whose ledger tail still renders as running
+// but has no live run in this process (orphaned by a previous process that died
+// mid-run). It is ledger-authoritative: it finalizes the dangling run the ledger
+// actually shows — which is what a table-based sweep missed, since a run_started
+// can outlive its runs row across a crash. No-op if the tail is already settled.
 func (s *Service) finalizeOrphanRun(sessionID string) {
-	runs, err := s.store.RunningRuns()
+	runID, err := s.store.DanglingRun(sessionID)
 	if err != nil {
-		slog.Error("finalize orphan: list running runs", "err", err)
+		slog.Error("finalize orphan: query dangling run", "session", sessionID, "err", err)
 		return
 	}
-	for _, r := range runs {
-		if r.SessionID != sessionID {
-			continue
-		}
-		s.commit(sessionID, "run_finished", r.ID, map[string]any{"runId": r.ID, "state": runInterrupted})
-		if err := s.store.FinishRun(r.ID, runInterrupted, "interrupted after daemon restart"); err != nil {
-			slog.Error("finalize orphan: finish run", "run", r.ID, "err", err)
-		}
-		if err := s.store.ClearActiveRun(sessionID, runInterrupted); err != nil {
-			slog.Error("finalize orphan: clear active run", "session", sessionID, "err", err)
-		}
+	if runID == "" {
+		return // ledger tail already settled
+	}
+	s.commit(sessionID, "run_finished", runID, map[string]any{"runId": runID, "state": runInterrupted})
+	if err := s.store.FinishRun(runID, runInterrupted, "interrupted after daemon restart"); err != nil {
+		slog.Error("finalize orphan: finish run", "run", runID, "err", err)
+	}
+	if err := s.store.ClearActiveRun(sessionID, runInterrupted); err != nil {
+		slog.Error("finalize orphan: clear active run", "session", sessionID, "err", err)
 	}
 }
 
@@ -395,13 +407,35 @@ func (s *Service) runProvider(ctx context.Context, cancel context.CancelFunc, se
 // settles to idle, plus a projection clear so the session list stops showing it
 // as running.
 func (s *Service) ReconcileStuckRuns() {
+	// Ledger-authoritative pass: settle every session whose tail still renders as
+	// running by committing the run_finished the crashed process never wrote. This
+	// is what clients actually display, and it catches ledger-only orphans (a
+	// run_started with no matching runs row) that the table-based sweep below can't
+	// see — the exact case that left sessions spinning forever.
+	dangling, err := s.store.DanglingRuns()
+	if err != nil {
+		slog.Error("reconcile: list dangling runs", "err", err)
+	}
+	for _, r := range dangling {
+		s.commit(r.SessionID, "run_finished", r.ID, map[string]any{"runId": r.ID, "state": runInterrupted})
+		if err := s.store.FinishRun(r.ID, runInterrupted, "daemon restarted mid-run"); err != nil {
+			slog.Error("reconcile: finish dangling run", "run", r.ID, "err", err)
+		}
+		if err := s.store.ClearActiveRun(r.SessionID, runInterrupted); err != nil {
+			slog.Error("reconcile: clear active run", "session", r.SessionID, "err", err)
+		}
+	}
+
+	// Table-hygiene pass: any runs row still marked running is an orphan too (a
+	// live run holds an in-memory cancel that does not survive a restart). Mark it
+	// terminal so it can't wrongly read as active later. No ledger commit here —
+	// the pass above already settled anything the ledger showed running.
 	runs, err := s.store.RunningRuns()
 	if err != nil {
-		slog.Error("reconcile stuck runs", "err", err)
+		slog.Error("reconcile: list running runs", "err", err)
 		return
 	}
 	for _, r := range runs {
-		s.commit(r.SessionID, "run_finished", r.ID, map[string]any{"runId": r.ID, "state": runInterrupted})
 		if err := s.store.FinishRun(r.ID, runInterrupted, "daemon restarted mid-run"); err != nil {
 			slog.Error("reconcile: finish run", "run", r.ID, "err", err)
 		}
@@ -409,8 +443,10 @@ func (s *Service) ReconcileStuckRuns() {
 			slog.Error("reconcile: clear active run", "session", r.SessionID, "err", err)
 		}
 	}
-	if len(runs) > 0 {
-		slog.Info("reconciled stuck runs from a previous process", "count", len(runs))
+
+	if len(dangling) > 0 || len(runs) > 0 {
+		slog.Info("reconciled stuck runs from a previous process",
+			"ledgerDangling", len(dangling), "tableRunning", len(runs))
 	}
 }
 

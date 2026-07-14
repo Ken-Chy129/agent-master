@@ -18,7 +18,7 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err)
 		return
 	}
-	events, err := s.svc.EventsAfter(sessionID, 0, renderCap)
+	events, err := s.svc.EventsTail(sessionID, renderCap)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -78,9 +78,11 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	subID, live := s.svc.Subscribe(sessionID)
 	defer s.svc.Unsubscribe(sessionID, subID)
 
-	// Full committed ledger drives render_state; a suffix drives am_event replay
+	// The recent tail drives render_state; a suffix drives am_event replay
 	// (resume) and its cursor. `events` accumulates live commits for re-render.
-	events, _ := s.svc.EventsAfter(sessionID, 0, renderCap)
+	// EventsTail (newest N) — not EventsAfter-from-0 — so a long session's render
+	// reflects its live tail instead of freezing on its oldest events.
+	events, _ := s.svc.EventsTail(sessionID, renderCap)
 	lastSeq := int64(0)
 	if n := len(events); n > 0 {
 		lastSeq = events[n-1].Seq

@@ -167,7 +167,7 @@ interface StoreState {
   sendMessage: (
     text: string,
     opts?: { model?: string; effort?: string; images?: SendImage[] },
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   interrupt: () => Promise<void>;
   markSeen: (sessionId: string, seq: number) => void;
   clearError: () => void;
@@ -461,12 +461,12 @@ export const useStore = create<StoreState>((set, get) => {
 
     sendMessage: async (text, opts) => {
       const { currentSessionId, currentSessionMachineId } = get();
-      if (!currentSessionId || !currentSessionMachineId) return;
+      if (!currentSessionId || !currentSessionMachineId) return false;
       const api = apiFor(currentSessionMachineId);
-      if (!api) return;
+      if (!api) return false;
       const trimmed = text.trim();
       const images = opts?.images ?? [];
-      if (!trimmed && images.length === 0) return;
+      if (!trimmed && images.length === 0) return false;
       try {
         await api.send(currentSessionId, {
           message: trimmed,
@@ -488,8 +488,10 @@ export const useStore = create<StoreState>((set, get) => {
             });
           }
         }
+        return true;
       } catch (err) {
         set({ error: errText(err) });
+        return false;
       }
     },
 

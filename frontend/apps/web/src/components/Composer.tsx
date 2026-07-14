@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ModelInfo, SendImage } from '@agent-master/core';
+import { composerSendSettlement } from '../lib/composerSend.js';
 import { useStore } from '../store.js';
 import { IconImage, IconSend, IconStop, IconX } from './icons.js';
 
@@ -31,6 +32,23 @@ interface PendingImage {
 }
 
 let pendingSeq = 0;
+
+// Per-session text drafts, kept module-level (non-reactive) so switching away
+// from a session and back restores whatever was typed but not yet sent.
+const draftBySession = new Map<string, string>();
+
+// Per-session staged-image drafts. Same idea as the text draft, but the object
+// URLs backing the thumbnails must stay alive across the switch — so unlike a
+// send/remove, switching sessions never revokes them; it just parks the array
+// here and swaps in the target session's. URLs are only revoked when the image
+// is actually removed or its message is sent.
+const imageDraftBySession = new Map<string, PendingImage[]>();
+
+function saveImageDraft(sessionId: string | null, imgs: PendingImage[]): void {
+  if (!sessionId) return;
+  if (imgs.length > 0) imageDraftBySession.set(sessionId, imgs);
+  else imageDraftBySession.delete(sessionId);
+}
 
 /** Read a File into raw base64 (strips the data: prefix). */
 function fileToBase64(file: File): Promise<string> {
@@ -69,23 +87,40 @@ export function Composer() {
   const [images, setImages] = useState<PendingImage[]>([]);
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState('');
+  const [dragging, setDragging] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  // Latest images, for a leak-free unmount cleanup without re-subscribing.
+  const dragDepthRef = useRef(0);
+  // Latest images + session id, read by handlers that run after awaits or on
+  // unmount without re-subscribing.
   const imagesRef = useRef<PendingImage[]>([]);
   imagesRef.current = images;
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
 
-  // Reset the draft (text + images + picks) whenever the open session changes —
-  // drafts must not carry across sessions.
+  // On session switch: restore that session's saved text + image drafts (empty
+  // if none), reset the per-message picks, then focus the composer so the user
+  // can start typing right away. Model/effort get re-seeded from meta by the
+  // effect below. Note we do NOT revoke the outgoing images' URLs here — they're
+  // parked (by add/remove) under the previous session and must survive so its
+  // thumbnails still render when the user comes back.
   useEffect(() => {
-    setText('');
+    setText(sessionId ? (draftBySession.get(sessionId) ?? '') : '');
     setModel('');
     setEffort('');
-    if (taRef.current) taRef.current.style.height = 'auto';
-    setImages((prev) => {
-      prev.forEach((img) => URL.revokeObjectURL(img.url));
-      return [];
+    setImages(sessionId ? (imageDraftBySession.get(sessionId) ?? []) : []);
+    // Size the textarea to the restored draft, focus it, and park the caret at
+    // the end — after React commits the restored value to the DOM.
+    const raf = requestAnimationFrame(() => {
+      const ta = taRef.current;
+      if (!ta) return;
+      ta.style.height = 'auto';
+      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      ta.focus();
+      const end = ta.value.length;
+      ta.setSelectionRange(end, end);
     });
+    return () => cancelAnimationFrame(raf);
   }, [sessionId]);
 
   // Seed model/effort from the session's last-used values once its metadata
@@ -98,8 +133,15 @@ export function Composer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meta?.id]);
 
-  // Revoke any lingering object URLs on unmount.
-  useEffect(() => () => imagesRef.current.forEach((img) => URL.revokeObjectURL(img.url)), []);
+  // On unmount (leaving the conversation entirely), park the current staged
+  // images under their session so reopening it restores them. We intentionally
+  // don't revoke here — the parked URLs must stay valid for that restore. Unsent
+  // drafts for sessions that are never revisited are the one bounded leak, freed
+  // on tab close.
+  useEffect(
+    () => () => saveImageDraft(sessionIdRef.current, imagesRef.current),
+    [],
+  );
 
   const selectedModel = models?.find((m) => m.id === model);
   // undefined (default model) → allow all; [] (known no support) → hide.
@@ -118,31 +160,34 @@ export function Composer() {
 
   const addFiles = async (files: FileList | File[]) => {
     const imgs = Array.from(files).filter((f) => f.type.startsWith('image/'));
+    const added: PendingImage[] = [];
     for (const file of imgs) {
       try {
-        const data = await fileToBase64(file);
-        setImages((prev) => [
-          ...prev,
-          {
-            id: `img-${pendingSeq++}`,
-            name: file.name || `pasted-${pendingSeq}.png`,
-            mediaType: file.type || 'image/png',
-            data,
-            url: URL.createObjectURL(file),
-          },
-        ]);
+        added.push({
+          id: `img-${pendingSeq++}`,
+          name: file.name || `pasted-${pendingSeq}.png`,
+          mediaType: file.type || 'image/png',
+          data: await fileToBase64(file),
+          url: URL.createObjectURL(file),
+        });
       } catch {
         // Skip an unreadable file rather than failing the whole paste.
       }
     }
+    if (added.length === 0) return;
+    // imagesRef is kept current every render, so it reflects any images added by
+    // an earlier concurrent call while this one was awaiting.
+    const next = [...imagesRef.current, ...added];
+    setImages(next);
+    saveImageDraft(sessionIdRef.current, next);
   };
 
   const removeImage = (id: string) => {
-    setImages((prev) => {
-      const gone = prev.find((i) => i.id === id);
-      if (gone) URL.revokeObjectURL(gone.url);
-      return prev.filter((i) => i.id !== id);
-    });
+    const gone = imagesRef.current.find((i) => i.id === id);
+    if (gone) URL.revokeObjectURL(gone.url);
+    const next = imagesRef.current.filter((i) => i.id !== id);
+    setImages(next);
+    saveImageDraft(sessionIdRef.current, next);
   };
 
   const onModelChange = (next: string) => {
@@ -154,7 +199,9 @@ export function Composer() {
 
   const submit = async () => {
     if (!canSend) return;
+    const targetSessionId = sessionId;
     const value = text.trim();
+    const pendingImages = images;
     const toSend: SendImage[] = images.map(({ name, mediaType, data }) => ({
       name,
       mediaType,
@@ -162,11 +209,26 @@ export function Composer() {
     }));
     setSending(true);
     setText('');
-    images.forEach((img) => URL.revokeObjectURL(img.url));
+    if (targetSessionId) draftBySession.delete(targetSessionId);
     setImages([]);
+    saveImageDraft(targetSessionId, []);
     if (taRef.current) taRef.current.style.height = 'auto';
     try {
-      await sendMessage(value, { model, effort, images: toSend });
+      const sent = await sendMessage(value, { model, effort, images: toSend });
+      const settlement = composerSendSettlement(sent, targetSessionId, sessionIdRef.current);
+      if (settlement.releaseImages) {
+        pendingImages.forEach((img) => URL.revokeObjectURL(img.url));
+      } else {
+        if (targetSessionId) draftBySession.set(targetSessionId, value);
+        saveImageDraft(targetSessionId, pendingImages);
+        // Restore only if the user is still looking at the same session; the
+        // module-level draft maps handle restoration after a session switch.
+        if (settlement.restoreDraft) {
+          setText(value);
+          setImages(pendingImages);
+          requestAnimationFrame(autoGrow);
+        }
+      }
     } finally {
       setSending(false);
     }
@@ -191,18 +253,46 @@ export function Composer() {
   };
 
   return (
-    <div className="px-5 pt-1 pb-4">
-      <div className="mx-auto max-w-[52rem]">
+    <div className="px-4 pt-4 pb-5 lg:px-8">
+      <div className="mx-auto w-full max-w-[68rem]">
         <div
-          className="rounded-2xl border border-border bg-surface shadow-sm transition-colors focus-within:border-accent"
-          onDragOver={(e) => e.preventDefault()}
+          className={`composer-card relative overflow-hidden rounded-2xl border bg-surface transition-all ${
+            dragging ? 'composer-card-dragging' : ''
+          }`}
+          onDragEnter={(e) => {
+            if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+            e.preventDefault();
+            dragDepthRef.current += 1;
+            setDragging(true);
+          }}
+          onDragOver={(e) => {
+            if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+            if (dragDepthRef.current === 0) setDragging(false);
+          }}
+          onDragEnd={() => {
+            dragDepthRef.current = 0;
+            setDragging(false);
+          }}
           onDrop={(e) => {
+            e.preventDefault();
+            dragDepthRef.current = 0;
+            setDragging(false);
             if (e.dataTransfer?.files?.length) {
-              e.preventDefault();
               void addFiles(e.dataTransfer.files);
             }
           }}
         >
+          {dragging && (
+            <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-xl border border-dashed border-accent bg-accent-soft/90 text-xs font-medium text-accent backdrop-blur-sm">
+              松开即可附加图片
+            </div>
+          )}
           {images.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3 pt-3">
               {images.map((img) => (
@@ -228,17 +318,23 @@ export function Composer() {
             ref={taRef}
             value={text}
             onChange={(e) => {
-              setText(e.target.value);
+              const v = e.target.value;
+              setText(v);
+              if (sessionId) draftBySession.set(sessionId, v);
               autoGrow();
             }}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
-            placeholder="描述要交给 agent 的任务…（可粘贴/拖入图片）"
+            placeholder={
+              runActive
+                ? 'Agent 正在运行，你可以先准备下一条指令…'
+                : '描述目标、补充上下文，或粘贴一张截图…'
+            }
             rows={1}
-            className="block max-h-50 min-h-[72px] w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-base leading-relaxed outline-none placeholder:text-ink-faint"
+            className="block max-h-50 min-h-[84px] w-full resize-none bg-transparent px-4 pt-4 pb-2 text-[15px] leading-6.5 outline-none placeholder:text-ink-faint"
           />
 
-          <div className="flex items-center gap-2 px-3 pb-2.5">
+          <div className="flex items-center gap-2 px-3 pt-1 pb-3">
             <input
               ref={fileRef}
               type="file"
@@ -253,7 +349,8 @@ export function Composer() {
             <button
               onClick={() => fileRef.current?.click()}
               title="添加图片"
-              className="flex h-7 w-7 flex-none items-center justify-center rounded-md text-ink-faint hover:bg-raised hover:text-ink"
+              aria-label="添加图片"
+              className="composer-icon-button flex h-7 w-7 flex-none items-center justify-center rounded-md text-ink-faint"
             >
               <IconImage size={15} />
             </button>
@@ -262,7 +359,8 @@ export function Composer() {
               value={model}
               onChange={(e) => onModelChange(e.target.value)}
               title="模型"
-              className="max-w-[9rem] truncate rounded-md border border-border bg-surface px-1.5 py-1 text-[11px] text-ink-muted outline-none hover:text-ink focus:border-accent"
+              aria-label="模型"
+              className="composer-select max-w-[9rem] truncate rounded-md px-2 py-1 text-[11px] outline-none"
             >
               {models.map((m) => (
                 <option key={m.id || 'default'} value={m.id}>
@@ -275,7 +373,8 @@ export function Composer() {
                 value={effort}
                 onChange={(e) => setEffort(e.target.value)}
                 title="思考等级"
-                className="rounded-md border border-border bg-surface px-1.5 py-1 text-[11px] text-ink-muted outline-none hover:text-ink focus:border-accent"
+                aria-label="思考等级"
+                className="composer-select rounded-md px-2 py-1 text-[11px] outline-none"
               >
                 <option value="">思考: 默认</option>
                 {effortOpts.map((lvl) => (
@@ -286,15 +385,16 @@ export function Composer() {
               </select>
             )}
 
-            <span className="hidden text-[11px] text-ink-faint sm:inline">
-              Enter 发送 · Shift+Enter 换行
+            <span className="composer-shortcut hidden text-[10.5px] text-ink-faint sm:inline">
+              {runActive ? '可继续编辑草稿 · 停止后发送' : 'Enter 发送 · Shift+Enter 换行'}
             </span>
             <div className="flex-1" />
             {runActive ? (
               <button
                 onClick={() => void interrupt()}
                 title="停止运行"
-                className="flex h-8 w-8 flex-none items-center justify-center rounded-full border border-danger/50 text-danger transition-colors hover:bg-danger-soft"
+                aria-label="停止运行"
+                className="composer-stop flex h-8 w-8 flex-none items-center justify-center rounded-full text-danger transition-all"
               >
                 <IconStop size={14} />
               </button>
@@ -303,7 +403,8 @@ export function Composer() {
                 onClick={() => void submit()}
                 disabled={!canSend}
                 title="发送"
-                className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-accent text-on-accent transition-opacity hover:opacity-90 disabled:opacity-40"
+                aria-label="发送"
+                className="composer-send flex h-8 w-8 flex-none items-center justify-center rounded-full bg-accent text-on-accent transition-all disabled:opacity-35"
               >
                 <IconSend size={14} />
               </button>

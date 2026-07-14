@@ -123,6 +123,14 @@ export function IconArrowUp({ size, className }: IconProps) {
   );
 }
 
+export function IconArrowDown({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className} aria-hidden="true">
+      <path d="M12 5v14M5 12l7 7 7-7" />
+    </svg>
+  );
+}
+
 export function IconChevronRight({ size, className }: IconProps) {
   return (
     <svg {...base(size)} className={className} aria-hidden="true">

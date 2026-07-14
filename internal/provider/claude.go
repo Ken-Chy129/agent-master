@@ -18,6 +18,11 @@ import (
 // large assistant messages can be big, so allow up to 16 MiB.
 const maxLine = 16 * 1024 * 1024
 
+// cancelGrace is how long an interrupted run's process group gets to exit on
+// SIGINT before we escalate — SIGKILL the group (see prepareCmd) and close our
+// stdout reader so it can't stay wedged on a descendant that kept the pipe open.
+const cancelGrace = 3 * time.Second
+
 // Claude drives the Claude Code CLI in print + stream-json mode.
 //
 // Each run spawns `claude -p "<message>" --output-format stream-json`, optionally
@@ -89,6 +94,26 @@ func (c *Claude) Run(ctx context.Context, o RunOptions, onEvent func(StreamEvent
 	if err := cmd.Start(); err != nil {
 		return RunResult{}, fmt.Errorf("start claude: %w", err)
 	}
+
+	// Backstop the reader against a wedged interrupt. If the run is cancelled but
+	// a descendant process kept the stdout pipe open — a hung tool subprocess, or
+	// one that detached from the process group — the scanner below would block on
+	// EOF forever and the run would never finalize, so the stop button would
+	// appear to do nothing. Closing our read end forces Scan to return. prepareCmd's
+	// group SIGINT→SIGKILL handles the common case well before this fires.
+	readerDone := make(chan struct{})
+	defer close(readerDone)
+	go func() {
+		select {
+		case <-readerDone:
+		case <-ctx.Done():
+			select {
+			case <-readerDone:
+			case <-time.After(cancelGrace + time.Second):
+				_ = stdout.Close()
+			}
+		}
+	}()
 
 	res := RunResult{}
 	sc := bufio.NewScanner(stdout)
