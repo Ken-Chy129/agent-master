@@ -685,14 +685,25 @@ summary:focus-visible,
  * window drag handles, and the rail leaves room for the traffic lights.
  * The .desktop-mac class is set on <html> only inside the Electron shell.
  */
-.desktop-mac .app-drag {
+.desktop-mac .app-drag,
+.desktop-mac .app-drag * {
   -webkit-app-region: drag;
 }
 .desktop-mac .app-drag button,
+.desktop-mac .app-drag button *,
 .desktop-mac .app-drag input,
 .desktop-mac .app-drag select,
 .desktop-mac .app-drag textarea,
-.desktop-mac .app-drag form {
+.desktop-mac .app-drag form,
+.desktop-mac .app-drag form *,
+.desktop-mac .app-drag a,
+.desktop-mac .app-drag a *,
+.desktop-mac .app-drag summary,
+.desktop-mac .app-drag summary *,
+.desktop-mac .app-drag [role='button'],
+.desktop-mac .app-drag [role='button'] *,
+.desktop-mac .app-drag [contenteditable='true'],
+.desktop-mac .app-drag [contenteditable='true'] * {
   -webkit-app-region: no-drag;
 }
 /*
