@@ -215,7 +215,7 @@ export function Conversation() {
       >
         <div className="flex min-h-full flex-col">
           <div className="flex-1">
-            <div className="conversation-column mx-auto flex w-full max-w-[68rem] flex-col gap-6 px-4 pt-7 lg:px-8 lg:pt-8">
+            <div className="conversation-column conversation-reading-width mx-auto flex flex-col gap-6 px-4 pt-7 lg:px-8 lg:pt-8">
               {connecting && <div className="py-10 text-center text-sm text-ink-muted">加载中…</div>}
               {!connecting && render.rows.length === 0 && (
                 <div className="mx-auto flex max-w-sm flex-col items-center py-16 text-center">
