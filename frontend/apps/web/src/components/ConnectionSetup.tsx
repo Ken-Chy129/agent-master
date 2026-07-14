@@ -164,7 +164,7 @@ export function ConnectionSetup({
           <div className="ml-auto w-full max-w-[34rem] lg:pr-8">
             <div className="flex items-center gap-2 text-[10px] font-semibold tracking-[0.2em] text-white/55 uppercase">
               <span className="h-1.5 w-1.5 rounded-full bg-[#78a9ff] shadow-[0_0_10px_#78a9ff]" />
-              Agent Master · Mac
+              Agent Master
             </div>
             <h1 className="connection-title mt-6 max-w-[30rem] text-[38px] leading-[1.08] font-semibold tracking-[-0.035em]">
               把每台开发机，收进一个安静的工作台。

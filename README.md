@@ -117,7 +117,7 @@ are unsigned: on Windows click through the SmartScreen warning once; on macOS
 clear the download quarantine on first launch:
 
 ```bash
-xattr -cr /Applications/agent-master.app   # then open normally
+xattr -cr "/Applications/Agent Master.app"   # then open normally
 ```
 
 Or build it yourself on macOS:
