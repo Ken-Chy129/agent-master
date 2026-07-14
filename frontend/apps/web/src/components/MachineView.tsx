@@ -331,20 +331,9 @@ function SessionRow({
       className={`session-row group relative flex cursor-pointer gap-2 rounded-xl px-3 py-2.5 transition-colors ${
         active ? 'session-row-active' : ''
       }`}
-      onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.target !== e.currentTarget) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onOpen();
-        }
-      }}
-      role="button"
-      tabIndex={0}
-      aria-current={active ? 'true' : undefined}
     >
-      <div className="min-w-0 flex-1">
-        {renaming ? (
+      {renaming ? (
+        <div className="min-w-0 flex-1">
           <input
             ref={inputRef}
             value={draft}
@@ -360,7 +349,14 @@ function SessionRow({
             onClick={(e) => e.stopPropagation()}
             className="w-full rounded border border-accent bg-surface px-1.5 py-0.5 text-xs outline-none"
           />
-        ) : (
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-current={active ? 'true' : undefined}
+          className="min-w-0 flex-1 text-left"
+        >
           <div className="flex items-center gap-2">
             {status === 'running' && (
               <span className="pulse-dot h-1.5 w-1.5 flex-none rounded-full bg-accent" />
@@ -379,13 +375,13 @@ function SessionRow({
               {relTime(session.updatedAt)}
             </span>
           </div>
-        )}
-        {statusLine(session, status) && (
-          <div className="mt-0.5 truncate text-[11.5px] leading-5 text-ink-faint">
-            {statusLine(session, status)}
-          </div>
-        )}
-      </div>
+          {statusLine(session, status) && (
+            <div className="mt-0.5 truncate text-[11.5px] leading-5 text-ink-faint">
+              {statusLine(session, status)}
+            </div>
+          )}
+        </button>
+      )}
 
       <div className="absolute top-2.5 right-2.5">
         <button
