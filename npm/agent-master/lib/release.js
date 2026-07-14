@@ -40,6 +40,7 @@ export function releasePlan({ version, platform, arch, baseUrl }) {
     asset,
     binaryName: `agent-master${extension}`,
     assetUrl: `${releaseBase}/${asset}`,
-    checksumUrl: `${releaseBase}/${asset}.sha256`,
+    checksumUrl: `${releaseBase}/SHA256SUMS`,
+    legacyChecksumUrl: `${releaseBase}/${asset}.sha256`,
   };
 }
