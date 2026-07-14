@@ -26,6 +26,8 @@ test('releasePlan maps Node platform names to release assets', () => {
     assetUrl:
       'https://github.com/Ken-Chy129/agent-master/releases/download/v0.2.2/agent-master-darwin-arm64',
     checksumUrl:
+      'https://github.com/Ken-Chy129/agent-master/releases/download/v0.2.2/SHA256SUMS',
+    legacyChecksumUrl:
       'https://github.com/Ken-Chy129/agent-master/releases/download/v0.2.2/agent-master-darwin-arm64.sha256',
   });
 
@@ -73,8 +75,10 @@ test('installBinary downloads and verifies the native executable', async () => {
     installDir,
     fetchImpl: async (url) => {
       requested.push(String(url));
-      if (String(url).endsWith('.sha256')) {
-        return new Response(`${digest}  agent-master-darwin-arm64\n`);
+      if (String(url).endsWith('/SHA256SUMS')) {
+        return new Response(
+          `${'0'.repeat(64)}  agent-master-linux-amd64\n${digest}  agent-master-darwin-arm64\n`,
+        );
       }
       return new Response(binary);
     },
@@ -82,11 +86,39 @@ test('installBinary downloads and verifies the native executable', async () => {
 
   assert.deepEqual(requested, [
     'https://github.com/Ken-Chy129/agent-master/releases/download/v0.2.2/agent-master-darwin-arm64',
-    'https://github.com/Ken-Chy129/agent-master/releases/download/v0.2.2/agent-master-darwin-arm64.sha256',
+    'https://github.com/Ken-Chy129/agent-master/releases/download/v0.2.2/SHA256SUMS',
   ]);
   assert.equal(binaryPath, path.join(installDir, 'agent-master'));
   assert.deepEqual(await readFile(binaryPath), binary);
   assert.notEqual((await stat(binaryPath)).mode & 0o111, 0);
+});
+
+test('installBinary falls back to legacy per-asset checksums', async () => {
+  const binary = Buffer.from('legacy release binary');
+  const digest = createHash('sha256').update(binary).digest('hex');
+  const installDir = await mkdtemp(path.join(tmpdir(), 'agent-master-npm-'));
+  const requested = [];
+
+  await installBinary({
+    version: '0.2.2',
+    platform: 'linux',
+    arch: 'x64',
+    installDir,
+    fetchImpl: async (url) => {
+      requested.push(String(url));
+      if (String(url).endsWith('/SHA256SUMS')) return new Response('', { status: 404 });
+      if (String(url).endsWith('.sha256')) {
+        return new Response(`${digest}  agent-master-linux-amd64\n`);
+      }
+      return new Response(binary);
+    },
+  });
+
+  assert.deepEqual(requested, [
+    'https://github.com/Ken-Chy129/agent-master/releases/download/v0.2.2/agent-master-linux-amd64',
+    'https://github.com/Ken-Chy129/agent-master/releases/download/v0.2.2/SHA256SUMS',
+    'https://github.com/Ken-Chy129/agent-master/releases/download/v0.2.2/agent-master-linux-amd64.sha256',
+  ]);
 });
 
 test('installBinary refuses a checksum mismatch', async () => {
@@ -99,7 +131,7 @@ test('installBinary refuses a checksum mismatch', async () => {
       arch: 'x64',
       installDir,
       fetchImpl: async (url) =>
-        String(url).endsWith('.sha256')
+        String(url).endsWith('/SHA256SUMS')
           ? new Response(`${'0'.repeat(64)}  agent-master-linux-amd64\n`)
           : new Response('unexpected payload'),
     }),
@@ -118,7 +150,7 @@ test('installBinary rejects an oversized download', async () => {
       installDir,
       maxBinaryBytes: 4,
       fetchImpl: async (url) =>
-        String(url).endsWith('.sha256')
+        String(url).endsWith('/SHA256SUMS')
           ? new Response(`${'0'.repeat(64)}  agent-master-linux-amd64\n`)
           : new Response('12345'),
     }),

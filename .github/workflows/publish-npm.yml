@@ -9,7 +9,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
   id-token: write
 
 jobs:
@@ -47,11 +47,23 @@ jobs:
               echo "GitHub Release v${VERSION} is missing ${asset}" >&2
               exit 1
             }
-            grep -Fxq "${asset}.sha256" <<<"$assets" || {
-              echo "GitHub Release v${VERSION} is missing ${asset}.sha256" >&2
-              exit 1
-            }
           done
+
+          if ! grep -Fxq SHA256SUMS <<<"$assets"; then
+            for asset in \
+              agent-master-darwin-amd64 \
+              agent-master-darwin-arm64 \
+              agent-master-linux-amd64 \
+              agent-master-linux-arm64 \
+              agent-master-windows-amd64.exe \
+              agent-master-windows-arm64.exe
+            do
+              grep -Fxq "${asset}.sha256" <<<"$assets" || {
+                echo "GitHub Release v${VERSION} has no checksum for ${asset}" >&2
+                exit 1
+              }
+            done
+          fi
 
       - name: Test npm installer
         working-directory: npm/agent-master
@@ -63,22 +75,8 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: npm version --no-git-tag-version "$VERSION"
 
-      - name: Build npm tarball
-        working-directory: npm/agent-master
-        run: mkdir -p release && npm pack --pack-destination release
-
       - name: Publish npm package
         working-directory: npm/agent-master
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --provenance --access public
-
-      - name: Replace npm tarball on GitHub Release
-        working-directory: npm/agent-master
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-        shell: bash
-        run: |
-          gh release delete-asset "v${VERSION}" "agent-master-${VERSION}.tgz" --yes || true
-          gh release upload "v${VERSION}" release/*.tgz --clobber

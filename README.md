@@ -1,195 +1,182 @@
-# agent-master
+# Agent Master
 
-A per-machine daemon that controls **Claude Code** on the host and exposes an
-HTTP API so you can manage sessions remotely from a desktop app (Electron),
-a web page, or (later) an Android client.
+Run Claude Code on your own machines and control its sessions from a browser or
+desktop app. Agent Master installs one lightweight daemon per machine, embeds a
+Web interface, and streams Claude's messages and tool activity in real time.
 
-Topology: run one daemon per machine; a client holds a list of machines and
-switches between them. No central hub. Reach machines from anywhere with a
-private overlay network like Tailscale.
+- No central server or hosted account
+- Multiple machines in one client
+- Resumable sessions and token-level streaming
+- Embedded Web UI plus an optional Electron desktop app
+- Per-machine access tokens and workspace restrictions
 
-> Status: drives Claude Code end to end (session, send, SSE stream, resume),
-> a React web UI + Electron desktop app + Android client that manage **multiple
-> machines** from one client, server-side **render_state** with token-level
-> streaming, and `agent-master pair` for onboarding.
->
-> **New here? Read [docs/HANDOFF.md](docs/HANDOFF.md)** (current status, what's
-> done, what's left, how to build/run, and the gotchas). Architecture:
-> [docs/DESIGN.md](docs/DESIGN.md); API contract: [docs/API.md](docs/API.md).
+> Agent Master can read, modify, and execute files with the permissions of the
+> daemon process. Keep it on a trusted private network such as Tailscale. Do not
+> expose port `8888` directly to the public internet.
 
-## Quick start (from source)
+## How it works
 
-```bash
-make build                 # builds Web assets + dist/agent-master
-./dist/agent-master serve  # API + Web UI on http://127.0.0.1:8888
+Install the daemon on every machine where Claude Code should run. You can then
+open that machine's embedded Web UI directly, or connect to several machines
+from the desktop app.
+
+```text
+Browser / Desktop App
+        │  HTTP + SSE
+        ▼
+Agent Master daemon  ──►  Claude Code CLI
+        │
+        └── sessions, configuration and logs in ~/.agent-master/
 ```
 
-Verify:
+There is no central hub. Each client stores a list of machine URLs and tokens
+and connects to those machines directly.
+
+## Quick start
+
+### Prerequisites
+
+On every machine that will run the daemon:
+
+1. Install and authenticate Claude Code (`claude`).
+2. Install Node.js 20 or newer for the npm installer.
+
+### 1. Install and start the daemon
 
 ```bash
-curl -s localhost:8888/health
-# {"status":"ok","version":"..."}
-
-TOKEN=$(./dist/agent-master token)
-curl -s localhost:8888/api/info -H "Authorization: Bearer $TOKEN"
-# {"name":"<host>","providers":{"claude":{"available":true,...}},...}
+npm install -g @ken-chy129/agent-master
+agent-master start
 ```
 
-Drive Claude in a workspace:
+`start` creates a per-user background service and prints the Web address and
+access token. The daemon itself is a standalone Go binary; Node.js only provides
+the installer and command shim.
 
-```bash
-AUTH="Authorization: Bearer $TOKEN"
+### 2. Open the Web interface
 
-# create a session bound to a working directory
-SID=$(curl -s -X POST localhost:8888/api/sessions -H "$AUTH" \
-  -d '{"title":"demo","workspaceDir":"/path/to/repo"}' | jq -r .id)
-
-# stream the session (SSE) in one terminal
-curl -sN "localhost:8888/api/sessions/$SID/stream?token=$TOKEN"
-
-# send a message in another — the reply streams into the SSE above
-curl -s -X POST localhost:8888/api/sessions/$SID/send -H "$AUTH" \
-  -d '{"message":"list the files here","clientIntentId":"abc"}'
-```
-
-## API (M1)
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | `/health` | liveness (public) |
-| GET | `/api/info` | machine name + provider availability |
-| GET | `/api/sessions` | list sessions (recent projection) |
-| POST | `/api/sessions` | create `{workspaceDir, model?, title?}` |
-| GET | `/api/sessions/{id}` | session detail |
-| PATCH | `/api/sessions/{id}` | rename `{title}` |
-| DELETE | `/api/sessions/{id}` | delete |
-| GET | `/api/sessions/{id}/messages?before_seq=&limit=` | history (ledger events) |
-| POST | `/api/sessions/{id}/send` | `{message, clientIntentId}` → starts a run |
-| POST | `/api/sessions/{id}/interrupt` | cancel the active run |
-| GET | `/api/sessions/{id}/stream` | resumable SSE (`Last-Event-ID` / `?after_seq=`) |
-
-SSE frames: `id: <seq>` + `event: am_event` + `data: {seq,type,runId,payload,createdAt}`.
-Event types: `user_message`, `run_started`, `assistant_message`, `tool_call`,
-`tool_result`, `run_finished`, `error`.
-
-## Clients (M4)
-
-One control client manages many machines: run a daemon on each machine, and the
-client holds a list of machine profiles (`{name, baseUrl, token}`) and switches
-between them. Get a machine's connection info with:
-
-```bash
-agent-master pair    # prints base URLs, token, an agentmaster:// deep link, and a QR
-```
-
-**Web**: production builds are embedded in the native daemon. After
-`agent-master start`, open:
+Open:
 
 ```text
 http://127.0.0.1:8888
 ```
 
-The first-run form defaults to the page's own origin, so a LAN or Tailscale URL
-also connects to the daemon that served it. Paste the token printed by
-`agent-master start` or `agent-master pair`. Browser tokens stay in that
-browser's local storage.
+Paste the token printed by `agent-master start`. The production Web app is
+embedded in the daemon, so there is no separate Web deployment to configure.
 
-For Web development (`frontend/`, npm workspaces):
+To connect from another device, run:
 
 ```bash
-cd frontend && npm install
-npm run dev -w @agent-master/web    # Vite on http://localhost:5173
-```
-
-`packages/core` (`@agent-master/core`) is a framework-free TS client (`ApiClient`,
-`SseClient`, machine model) reused across web/desktop/(future) mobile.
-
-**Desktop** (Electron, `frontend/apps/desktop`): loads the same web UI, stores
-tokens in the OS-encrypted secure store (Electron `safeStorage`), and handles
-`agentmaster://` pairing deep links. It connects to the daemon over its existing
-API, so the desktop app and embedded Web client can be open at the same time.
-
-Download the prebuilt app from the
-[Releases page](https://github.com/Ken-Chy129/agent-master/releases/latest):
-macOS `agent-master-<version>-<arch>.dmg` (`arm64` for Apple Silicon, `x64` for
-Intel) or the Windows installer `agent-master-<version>-x64.exe`. Both builds
-are unsigned: on Windows click through the SmartScreen warning once; on macOS
-clear the download quarantine on first launch:
-
-```bash
-xattr -cr "/Applications/Agent Master.app"   # then open normally
-```
-
-Or build it yourself on macOS:
-
-```bash
-npm run dev -w @agent-master/desktop    # dev (needs the web dev server)
-npm run dist -w @agent-master/desktop   # package a .dmg + .zip into release/
-```
-
-**Reachability**: put your machines and client on one **Tailscale** tailnet and
-use the tailnet URL (set it as `public_url`) — no public port exposure.
-
-## Install (release)
-
-**npm (recommended, macOS / Linux / Windows, Node.js 20+):**
-
-```bash
-npm install -g @ken-chy129/agent-master
-agent-master start
-# open http://127.0.0.1:8888
-```
-
-The npm installer downloads the matching native release binary and verifies its
-SHA-256 checksum. The daemon remains a standalone Go process; Node only provides
-the installation and command shim.
-
-**Native installer:** installs the latest release binary into `~/.local/bin`
-(no sudo). Override with `INSTALL_DIR=` (a system dir like `/usr/local/bin` then
-uses sudo).
-
-**Linux / macOS**:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Ken-Chy129/agent-master/main/install.sh | bash
-# ensure ~/.local/bin is on PATH (the installer prints this if needed)
-agent-master start   # install + start the background service (systemd / launchd)
-agent-master pair    # show URL/token/QR for desktop or remote clients
-```
-
-**Windows** (10 1903+, PowerShell):
-
-```powershell
-irm https://raw.githubusercontent.com/Ken-Chy129/agent-master/main/install.ps1 | iex
-agent-master start   # runs in the background + auto-starts at logon
 agent-master pair
 ```
 
-Service commands: `start` / `stop` / `restart` / `status` / `uninstall`.
-`serve` runs in the foreground (dev/debug). On Linux/macOS the background
-service is a systemd user unit / launchd LaunchAgent; on Windows it's a
-windowless background process plus a per-user Run-key autostart (no admin
-needed).
+This prints reachable addresses, the token, a deep link, and a QR code.
 
-## Layout
+### 3. Optional desktop app
 
+Download the desktop client from the
+[latest Release](https://github.com/Ken-Chy129/agent-master/releases/latest):
+
+- macOS: choose the `.dmg` matching Apple Silicon (`arm64`) or Intel (`x64`)
+- Windows: choose the versioned desktop installer `.exe`, not an
+  `agent-master-windows-*` runtime binary
+
+The desktop app is a client; it does not replace the daemon on machines where
+Claude Code runs. It stores tokens using Electron `safeStorage` and supports
+`agentmaster://` pairing links. The desktop app and Web UI can be open at the
+same time.
+
+Desktop builds are currently unsigned. Windows may show a SmartScreen warning.
+On macOS, clear the download quarantine once if the app is blocked:
+
+```bash
+xattr -cr "/Applications/Agent Master.app"
 ```
-cmd/agent-master/   CLI entry: start / stop / status / pair / token / serve / version
-internal/
-  config/           ~/.agent-master/config.json (host, port, token)
-  store/            SQLite (modernc.org/sqlite): event ledger + projections
-  server/           HTTP: embedded Web UI + /health + token-protected API
-  service/          systemd / launchd / Windows Run-key install
-  version/          build version
-npm/agent-master/   npm installer + native command shim
-install.sh          release installer (Linux/macOS)
-install.ps1         release installer (Windows)
-Makefile            build / release (cross-compile)
+
+## Multiple machines
+
+Run Agent Master on each target machine, then add each machine using the output
+from `agent-master pair`. For access outside the local network, put the daemon
+machines and client devices on the same Tailscale tailnet and use the Tailscale
+address as `public_url`.
+
+Do not forward port `8888` to the public internet. If public exposure is
+unavoidable, use a TLS reverse proxy, a strong token, and restricted CORS
+origins.
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `agent-master start` | Install or update the background service and start it |
+| `agent-master status` | Show service and health status |
+| `agent-master pair` | Print connection addresses, token, deep link, and QR code |
+| `agent-master token` | Print the current access token |
+| `agent-master restart` | Restart the installed service |
+| `agent-master stop` | Stop the service without removing it |
+| `agent-master uninstall` | Remove the service definition; keep data and configuration |
+| `agent-master serve` | Run in the foreground for development or debugging |
+| `agent-master version` | Print the installed version |
+
+## Updating and uninstalling
+
+Update an npm installation:
+
+```bash
+npm install -g @ken-chy129/agent-master@latest
+agent-master restart
 ```
 
-## Config
+When switching from the native installer to npm, remove the old service first.
+This does not delete sessions, configuration, or the token:
 
-`~/.agent-master/config.json` (created on first run, `0600`):
+```bash
+agent-master uninstall
+npm install -g @ken-chy129/agent-master
+agent-master start
+```
+
+To remove the npm installation completely:
+
+```bash
+agent-master uninstall
+npm uninstall -g @ken-chy129/agent-master
+```
+
+If Node.js is managed with NVM, global npm packages belong to the active Node.js
+version and may need to be installed again after switching versions.
+
+## Native installation alternative
+
+The native installers place the latest daemon in `~/.local/bin` and do not
+require Node.js.
+
+Linux and macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ken-Chy129/agent-master/main/install.sh | bash
+agent-master start
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/Ken-Chy129/agent-master/main/install.ps1 | iex
+agent-master start
+```
+
+Set `INSTALL_DIR` to override the destination or `AGENT_MASTER_VERSION` to pin a
+specific release.
+
+## Configuration and data
+
+Agent Master stores its state in `~/.agent-master/`:
+
+- `config.json` — daemon settings and access token
+- `agent-master.db` — session event ledger and projections
+- `daemon.log` — rolling daemon log
+- `uploads/` — images staged for sessions
+
+Example configuration:
 
 ```json
 {
@@ -197,15 +184,84 @@ Makefile            build / release (cross-compile)
   "port": 8888,
   "token": "<generated>",
   "claude_bin": "",
-  "workspace_roots": []
+  "workspace_roots": [],
+  "allowed_origins": [],
+  "public_url": ""
 }
 ```
 
-`claude_bin` empty → resolve `claude` from `PATH`.
+- `claude_bin`: optional path to the Claude CLI; empty resolves `claude` from `PATH`
+- `workspace_roots`: allowed session directories; empty currently means unrestricted
+- `allowed_origins`: accepted browser origins; empty allows any origin with a valid token
+- `public_url`: address advertised by `pair`, such as a Tailscale or reverse-proxy URL
 
-## Security
+The configuration file is created with user-only permissions. Treat its token
+as a secret.
 
-The API controls Claude on this machine (it can read/write files and run
-commands with the daemon's permissions). Keep it on a trusted network
-(Tailscale recommended); do not expose the port to the public internet without
-TLS and the token.
+## Release files
+
+Most users only need the npm command and, optionally, one desktop installer.
+The remaining files on GitHub Releases are runtime assets used automatically by
+the npm and native installers:
+
+- macOS `.dmg` and the versioned Windows installer `.exe` — desktop clients
+- `agent-master-<os>-<arch>` — daemon binaries selected by the installer
+- `SHA256SUMS` — checksum manifest used to verify daemon downloads
+
+## Development
+
+Build the daemon and embedded Web UI from source:
+
+```bash
+make build
+./dist/agent-master serve
+```
+
+Run backend tests and checks:
+
+```bash
+go test ./...
+go vet ./...
+```
+
+Run the Web client in development mode:
+
+```bash
+cd frontend
+npm ci
+npm run dev -w @agent-master/web
+```
+
+Build or run the desktop client:
+
+```bash
+cd frontend
+npm run build -w @agent-master/desktop
+npm run dev -w @agent-master/desktop
+```
+
+The Android project contains a tested Kotlin core and a Compose application
+scaffold, but the Android app has not yet been fully built, validated, or
+published as a supported client.
+
+## Project structure
+
+```text
+cmd/agent-master/        CLI and daemon entry point
+internal/config/         configuration and local paths
+internal/service/        systemd, launchd, and Windows service integration
+internal/server/         HTTP API, SSE, and embedded Web UI
+internal/session/        session execution and event projection
+internal/store/          SQLite event ledger
+frontend/apps/web/       React Web client
+frontend/apps/desktop/   Electron desktop client
+frontend/packages/core/  shared TypeScript API client and models
+npm/agent-master/        npm installer and native command shim
+android/                 experimental Android client
+```
+
+## Documentation
+
+- [HTTP API](docs/API.md)
+- [Architecture and design](docs/DESIGN.md)
+- [Developer handoff and implementation status](docs/HANDOFF.md)

@@ -5,7 +5,7 @@
 #
 # Env:
 #   AGENT_MASTER_VERSION  specific version (default: latest release)
-#   INSTALL_DIR           install prefix (default: /usr/local/bin)
+#   INSTALL_DIR           install prefix (default: ~/.local/bin)
 set -euo pipefail
 
 REPO="Ken-Chy129/agent-master"
@@ -64,14 +64,25 @@ main() {
   echo "Downloading ${asset} (v${ver})..."
   curl -fsSL "${base}/${asset}" -o "${tmp}/${BIN}" || die "download failed"
 
-  if curl -fsSL "${base}/${asset}.sha256" -o "${tmp}/sum" 2>/dev/null; then
-    local expected actual
-    expected="$(awk '{print $1}' "${tmp}/sum")"
+  local expected actual
+  expected=""
+  if curl -fsSL "${base}/SHA256SUMS" -o "${tmp}/sums" 2>/dev/null; then
+    expected="$(awk -v asset="$asset" '$2 == asset || $2 == "*" asset { print $1; exit }' "${tmp}/sums")"
+    [ -n "$expected" ] || die "SHA256SUMS has no entry for ${asset}"
+  elif curl -fsSL "${base}/${asset}.sha256" -o "${tmp}/sum" 2>/dev/null; then
+    # Backward compatibility for releases before the consolidated manifest.
+    expected="$(awk -v asset="$asset" '$2 == asset || $2 == "*" asset { print $1; exit }' "${tmp}/sum")"
+    [ -n "$expected" ] || die "invalid checksum file for ${asset}"
+  fi
+
+  if [ -n "$expected" ]; then
     actual="$(sha256 "${tmp}/${BIN}")"
     if [ -n "$actual" ] && [ "$expected" != "$actual" ]; then
       die "checksum mismatch (expected $expected, got $actual)"
     fi
     echo "Checksum OK."
+  else
+    echo "Warning: no checksum published for ${asset}; skipping verification."
   fi
 
   chmod +x "${tmp}/${BIN}"

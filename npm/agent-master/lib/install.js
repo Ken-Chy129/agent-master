@@ -20,19 +20,26 @@ export async function installBinary({
   if (typeof fetchImpl !== 'function') throw new Error('Node.js 20 or newer is required');
 
   const plan = releasePlan({ version, platform, arch, baseUrl });
-  const [binaryResponse, checksumResponse] = await Promise.all([
+  const [binaryResponse, consolidatedChecksumResponse] = await Promise.all([
     fetchImpl(plan.assetUrl),
     fetchImpl(plan.checksumUrl),
   ]);
   assertDownload(binaryResponse, plan.assetUrl);
-  assertDownload(checksumResponse, plan.checksumUrl);
+
+  let checksumResponse = consolidatedChecksumResponse;
+  let checksumURL = plan.checksumUrl;
+  if (!checksumResponse.ok) {
+    checksumURL = plan.legacyChecksumUrl;
+    checksumResponse = await fetchImpl(checksumURL);
+  }
+  assertDownload(checksumResponse, checksumURL);
 
   const [binary, checksum] = await Promise.all([
     readLimited(binaryResponse, maxBinaryBytes, plan.asset),
     readLimited(checksumResponse, MAX_CHECKSUM_BYTES, `${plan.asset}.sha256`),
   ]);
   const checksumText = checksum.toString('utf8');
-  const expected = checksumText.trim().split(/\s+/)[0]?.toLowerCase();
+  const expected = checksumForAsset(checksumText, plan.asset);
   if (!expected || !/^[a-f0-9]{64}$/.test(expected)) {
     throw new Error(`invalid checksum file for ${plan.asset}`);
   }
@@ -50,6 +57,17 @@ export async function installBinary({
   await rm(binaryPath, { force: true });
   await rename(temporaryPath, binaryPath);
   return binaryPath;
+}
+
+function checksumForAsset(text, asset) {
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.trim().match(/^([a-fA-F0-9]{64})(?:\s+\*?(.+))?$/);
+    if (!match) continue;
+
+    const filename = match[2]?.trim().replace(/^\.\//, '');
+    if (filename === asset) return match[1].toLowerCase();
+  }
+  return '';
 }
 
 async function readLimited(response, maxBytes, label) {
