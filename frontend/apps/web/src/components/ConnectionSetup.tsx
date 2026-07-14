@@ -1,10 +1,9 @@
 import { useState } from 'react';
+import { defaultDaemonUrl } from '../lib/connectionUrl.js';
 import { useEscape } from '../lib/useEscape.js';
 import { getBridge } from '../storage.js';
 import { useStore } from '../store.js';
 import { IconCheck, IconChevronRight, IconTerminal, IconX } from './icons.js';
-
-const DEFAULT_BASE_URL = 'http://localhost:8888';
 
 /**
  * Add-machine form. Rendered as a centered card on first run (no machines yet)
@@ -21,8 +20,9 @@ export function ConnectionSetup({
 }) {
   const addMachine = useStore((s) => s.addMachine);
   const desktop = getBridge() !== null;
+  const initialBaseUrl = defaultDaemonUrl(window.location);
   const [name, setName] = useState('');
-  const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
+  const [baseUrl, setBaseUrl] = useState(initialBaseUrl);
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -99,7 +99,7 @@ export function ConnectionSetup({
         <input
           type="text"
           value={baseUrl}
-          placeholder={DEFAULT_BASE_URL}
+          placeholder={initialBaseUrl}
           onChange={(e) => setBaseUrl(e.target.value)}
           autoComplete="off"
           spellCheck={false}

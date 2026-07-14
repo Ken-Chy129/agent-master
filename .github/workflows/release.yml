@@ -20,7 +20,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build release binaries
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build embedded Web client and release binaries
         run: make release VERSION="${GITHUB_REF_NAME#v}"
 
       - name: Publish release
