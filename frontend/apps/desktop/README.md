@@ -20,7 +20,7 @@ apps/desktop/
   build.mjs               esbuild bundler: src/*.ts -> dist-electron/*.js (CJS)
   package.json            @agent-master/desktop, main = dist-electron/main.js
   tsconfig.json           typecheck config for main/preload
-  electron-builder.yml    packaging config (mac dmg+zip, arm64+x64)
+  electron-builder.yml    packaging config (mac dmg, arm64+x64)
   src/
     main.ts               Electron main: window, secure-store IPC, deep links
     preload.ts            contextBridge -> window.agentMaster (DesktopBridge)
@@ -78,10 +78,10 @@ electron apps/desktop        # from the frontend/ root, with electron installed
 ## Package (macOS only)
 
 electron-builder produces the distributables. **Run this on macOS** — a macOS
-`.dmg`/`.zip` cannot be built on Linux.
+`.dmg` cannot be built on Linux.
 
 ```bash
-npm run dist -w @agent-master/desktop     # dmg + zip, arm64 + x64 -> release/
+npm run dist -w @agent-master/desktop     # dmg, arm64 + x64 -> release/
 npm run pack:dir -w @agent-master/desktop # unpacked .app for quick testing
 ```
 
@@ -107,5 +107,5 @@ export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
 | `dev`       | `AM_DESKTOP_DEV=1` compile + launch electron at the dev URL |
 | `dev:web`   | run the Vite dev server for `@agent-master/web` |
 | `build`     | web build + `compile` |
-| `dist`      | `build` + electron-builder mac dmg+zip arm64+x64 |
+| `dist`      | `build` + electron-builder mac dmg arm64+x64 |
 | `pack:dir`  | `build` + electron-builder `--dir` (unpacked) |

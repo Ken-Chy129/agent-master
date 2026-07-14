@@ -53,12 +53,44 @@ $tmp = Join-Path ([IO.Path]::GetTempPath()) "$asset.$PID"
 Write-Host "Downloading $bin v$ver ($asset)..."
 Invoke-WebRequest -Uri "$base/$asset" -OutFile $tmp -UseBasicParsing
 
-# Verify the checksum when the release publishes one.
+# Verify the consolidated checksum manifest. Fall back to the legacy per-asset
+# checksum used by older releases.
+$expected = $null
 try {
-    $expected = ((Invoke-WebRequest -Uri "$base/$asset.sha256" -UseBasicParsing).Content -split '\s+')[0]
+    $sumText = (Invoke-WebRequest -Uri "$base/SHA256SUMS" -UseBasicParsing).Content
 } catch {
-    $expected = $null
-    Write-Host 'Warning: no checksum published for this asset; skipping verification.'
+    $sumText = $null
+}
+if ($sumText) {
+    foreach ($line in ($sumText -split '\r?\n')) {
+        if ($line -match '^([a-fA-F0-9]{64})\s+\*?(.+)$' -and $Matches[2].Trim() -eq $asset) {
+            $expected = $Matches[1]
+            break
+        }
+    }
+    if (-not $expected) {
+        Remove-Item -Force $tmp
+        throw "SHA256SUMS has no entry for $asset"
+    }
+} else {
+    $legacyText = $null
+    try {
+        $legacyText = (Invoke-WebRequest -Uri "$base/$asset.sha256" -UseBasicParsing).Content
+    } catch {}
+    if ($legacyText) {
+        foreach ($line in ($legacyText -split '\r?\n')) {
+            if ($line -match '^([a-fA-F0-9]{64})\s+\*?(.+)$' -and $Matches[2].Trim() -eq $asset) {
+                $expected = $Matches[1]
+                break
+            }
+        }
+        if (-not $expected) {
+            Remove-Item -Force $tmp
+            throw "invalid checksum file for $asset"
+        }
+    } else {
+        Write-Host 'Warning: no checksum published for this asset; skipping verification.'
+    }
 }
 if ($expected) {
     $actual = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash.ToLower()

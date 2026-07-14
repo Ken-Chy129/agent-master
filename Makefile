@@ -41,15 +41,16 @@ clean:
 	rm -rf dist
 	@find $(EMBED_WEB_DIST) -type f ! -name .keep -delete
 
-## release: cross-compile static binaries + sha256 for all platforms
+## release: cross-compile static binaries + one checksum manifest
 release: web-assets
 	@mkdir -p dist
+	@rm -f dist/agent-master-* dist/SHA256SUMS
 	@for p in $(PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; ext=""; \
 		if [ "$$os" = windows ]; then ext=".exe"; fi; \
 		name=$(BINARY)-$$os-$$arch$$ext; out=dist/$$name; \
 		echo "building $$out"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o $$out ./cmd/agent-master || exit 1; \
-		( cd dist && sha256sum $$name > $$name.sha256 ); \
+		( cd dist && sha256sum $$name >> SHA256SUMS ); \
 	done
 	@echo "release artifacts in dist/"
