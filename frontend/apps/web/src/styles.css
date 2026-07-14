@@ -208,6 +208,53 @@ body {
   background: var(--am-raised);
 }
 
+.session-column {
+  background: color-mix(in srgb, var(--am-surface) 96%, var(--am-canvas));
+}
+
+.session-search,
+.session-group-select {
+  color: var(--am-ink-muted);
+  background: var(--am-canvas);
+  border: 1px solid var(--am-border);
+}
+
+.session-search:hover,
+.session-group-select:hover {
+  border-color: var(--am-border-strong);
+}
+
+.session-search:focus,
+.session-group-select:focus {
+  color: var(--am-ink);
+  background: var(--am-surface);
+  border-color: var(--am-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--am-accent) 8%, transparent);
+}
+
+.session-group-header:hover {
+  background: color-mix(in srgb, var(--am-raised) 62%, transparent);
+}
+
+.session-row:hover {
+  background: color-mix(in srgb, var(--am-raised) 72%, transparent);
+}
+
+.session-row-active {
+  background: color-mix(in srgb, var(--am-accent-soft) 72%, var(--am-surface));
+  box-shadow: inset 2px 0 var(--am-accent);
+}
+
+.session-new-button {
+  color: var(--am-accent);
+  background: color-mix(in srgb, var(--am-accent-soft) 70%, var(--am-surface));
+}
+
+.session-new-button:hover {
+  background: var(--am-accent-soft);
+  transform: translateY(-1px);
+}
+
 @media (max-width: 1023px) and (max-height: 560px) {
   .connection-storage-note {
     display: none;

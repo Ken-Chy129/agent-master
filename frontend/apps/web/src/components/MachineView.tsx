@@ -6,6 +6,7 @@ import { relTime } from '../lib/time.js';
 import { EMPTY_RUNTIME, useStore } from '../store.js';
 import { Conversation } from './Conversation.js';
 import {
+  IconAlert,
   IconChevronRight,
   IconDots,
   IconPanelLeft,
@@ -134,12 +135,12 @@ function SessionColumn({
   const claudeAvailable = runtime.info?.providers?.claude?.available;
 
   return (
-    <aside className="flex w-[268px] flex-none flex-col border-r border-border bg-surface">
-      <div className="app-drag px-3 pt-3 pb-2">
-        <div className="flex items-center gap-1.5">
-          <span className="truncate text-[13px] font-semibold">{machine.name}</span>
+    <aside className="session-column flex w-[304px] flex-none flex-col border-r border-border bg-surface">
+      <div className="app-drag px-4 pt-4 pb-3">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-[15px] font-semibold tracking-[-0.015em]">{machine.name}</span>
           <span
-            className={`h-2 w-2 flex-none rounded-full ${
+            className={`h-1.5 w-1.5 flex-none rounded-full ${
               runtime.online === null
                 ? 'bg-ink-faint'
                 : runtime.online
@@ -149,26 +150,31 @@ function SessionColumn({
             title={runtime.online === false ? '离线' : runtime.online ? '在线' : '检测中'}
           />
           {claudeAvailable === false && (
-            <span className="text-[10px] text-danger" title="该机器上找不到 claude CLI">
-              claude ✗
+            <span
+              className="flex text-danger"
+              title="该机器上找不到 Claude CLI"
+              aria-label="Claude CLI 不可用"
+            >
+              <IconAlert size={13} />
             </span>
           )}
           <button
-            className="ml-auto rounded-md p-1 text-ink-faint hover:bg-raised hover:text-ink"
+            className="ml-auto rounded-lg p-1.5 text-ink-faint hover:bg-raised hover:text-ink"
             onClick={onCollapse}
             title="收起会话列表"
+            aria-label="收起会话列表"
           >
-            <IconPanelLeft size={15} />
+            <IconPanelLeft size={16} />
           </button>
         </div>
         <div
-          className="mt-0.5 truncate font-mono text-[10px] text-ink-faint"
+          className="mt-0.5 truncate font-mono text-[10.5px] text-ink-faint"
           title={machine.baseUrl}
         >
           {machine.baseUrl}
         </div>
 
-        <div className="mt-2.5 flex items-center gap-1.5">
+        <div className="mt-3.5 flex items-center gap-2">
           <div className="relative flex-1">
             <IconSearch
               size={13}
@@ -178,11 +184,13 @@ function SessionColumn({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜索会话"
-              className="w-full rounded-lg border border-border bg-canvas py-1.5 pr-6 pl-7.5 text-xs outline-none placeholder:text-ink-faint focus:border-accent"
+              aria-label="搜索会话"
+              className="session-search w-full rounded-xl py-2 pr-7 pl-8 text-[12.5px] outline-none placeholder:text-ink-faint"
             />
             {query && (
               <button
                 onClick={() => setQuery('')}
+                aria-label="清空搜索"
                 className="absolute top-1/2 right-2 -translate-y-1/2 text-ink-faint hover:text-ink"
               >
                 <IconX size={12} />
@@ -193,7 +201,8 @@ function SessionColumn({
             value={groupMode}
             onChange={(e) => changeGroupMode(e.target.value as GroupMode)}
             title="归类方式"
-            className="rounded-lg border border-border bg-canvas py-1.5 pl-2 text-[11px] text-ink-muted outline-none focus:border-accent"
+            aria-label="会话归类方式"
+            className="session-group-select w-[92px] rounded-xl px-2.5 py-2 text-[11.5px] outline-none"
           >
             {GROUP_MODES.map((m) => (
               <option key={m.value} value={m.value}>
@@ -204,7 +213,7 @@ function SessionColumn({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {runtime.sessionsLoading && runtime.sessions.length === 0 && (
           <div className="p-4 text-center text-xs text-ink-muted">加载中…</div>
         )}
@@ -216,20 +225,24 @@ function SessionColumn({
         {groups.map((g) => {
           const isCollapsed = collapsed.has(`${machineId}:${g.key}`);
           return (
-            <div key={g.key} className="mt-2 first:mt-1">
-              <div
-                className="group/header flex cursor-pointer items-center gap-1 rounded-md px-3 py-1.5 select-none hover:bg-raised/50"
-                title={g.dir}
-                onClick={() => toggleGroup(g.key)}
-              >
-                <IconChevronRight
-                  size={11}
-                  className={`flex-none text-ink-faint transition-transform ${
-                    isCollapsed ? '' : 'rotate-90'
-                  }`}
-                />
-                <span className="truncate text-[11px] font-semibold text-ink-faint">{g.label}</span>
-                <span className="flex-none text-[10px] text-ink-faint/80">{g.sessions.length}</span>
+            <div key={g.key} className="mt-3 first:mt-1">
+              <div className="group/header session-group-header flex items-center rounded-lg">
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 px-2.5 py-2 text-left select-none"
+                  title={g.dir}
+                  onClick={() => toggleGroup(g.key)}
+                  aria-expanded={!isCollapsed}
+                >
+                  <IconChevronRight
+                    size={11}
+                    className={`flex-none text-ink-faint transition-transform ${
+                      isCollapsed ? '' : 'rotate-90'
+                    }`}
+                  />
+                  <span className="truncate text-[11.5px] font-semibold text-ink-muted">{g.label}</span>
+                  <span className="flex-none text-[10.5px] text-ink-faint">{g.sessions.length}</span>
+                </button>
                 {groupMode === 'project' && g.dir && (
                   <button
                     title={`在 ${g.label} 新建会话`}
@@ -237,7 +250,8 @@ function SessionColumn({
                       e.stopPropagation();
                       setNewSession({ initialDir: g.dir });
                     }}
-                    className="ml-auto rounded-md p-0.5 text-ink-faint opacity-0 group-hover/header:opacity-100 hover:bg-raised hover:text-ink"
+                    aria-label={`在 ${g.label} 新建会话`}
+                    className="mr-1 rounded-md p-1 text-ink-faint opacity-0 group-hover/header:opacity-100 hover:bg-raised hover:text-ink focus:opacity-100"
                   >
                     <IconPlus size={13} />
                   </button>
@@ -259,13 +273,13 @@ function SessionColumn({
         })}
       </div>
 
-      <div className="border-t border-border p-2.5">
+      <div className="px-3 pt-2 pb-3">
         <button
           onClick={() => setNewSession({})}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border py-1.5 text-xs font-medium text-ink-muted transition-colors hover:border-border-strong hover:bg-raised hover:text-ink"
+          className="session-new-button flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-[12.5px] font-medium transition-all"
         >
-          <IconPlus size={13} />
-          新会话
+          <IconPlus size={14} />
+          新建会话
         </button>
       </div>
 
@@ -314,10 +328,20 @@ function SessionRow({
 
   return (
     <div
-      className={`group relative mx-1.5 flex cursor-pointer gap-2 rounded-lg px-2.5 py-2 transition-colors ${
-        active ? 'bg-raised' : 'hover:bg-raised/60'
+      className={`session-row group relative flex cursor-pointer gap-2 rounded-xl px-3 py-2.5 transition-colors ${
+        active ? 'session-row-active' : ''
       }`}
       onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      aria-current={active ? 'true' : undefined}
     >
       <div className="min-w-0 flex-1">
         {renaming ? (
@@ -337,7 +361,7 @@ function SessionRow({
             className="w-full rounded border border-accent bg-surface px-1.5 py-0.5 text-xs outline-none"
           />
         ) : (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             {status === 'running' && (
               <span className="pulse-dot h-1.5 w-1.5 flex-none rounded-full bg-accent" />
             )}
@@ -345,8 +369,8 @@ function SessionRow({
               <span className="h-1.5 w-1.5 flex-none rounded-full bg-warn-solid" />
             )}
             <span
-              className={`truncate text-[12.5px] ${
-                active ? 'font-medium text-ink' : 'text-ink'
+              className={`truncate text-[13px] leading-5 ${
+                active ? 'font-semibold text-ink' : 'font-medium text-ink'
               }`}
             >
               {session.title || '（未命名）'}
@@ -357,13 +381,13 @@ function SessionRow({
           </div>
         )}
         {statusLine(session, status) && (
-          <div className="mt-[3px] truncate text-[11.5px] text-ink-faint">
+          <div className="mt-0.5 truncate text-[11.5px] leading-5 text-ink-faint">
             {statusLine(session, status)}
           </div>
         )}
       </div>
 
-      <div className="absolute top-2 right-2">
+      <div className="absolute top-2.5 right-2.5">
         <button
           className={`rounded-md p-0.5 text-ink-faint hover:bg-surface hover:text-ink ${
             menu ? '' : 'hidden group-hover:block'
@@ -415,4 +439,3 @@ function SessionRow({
     </div>
   );
 }
-
