@@ -27,7 +27,16 @@ export function App() {
   }, [init]);
 
   if (!initialized) {
-    return <div className="flex h-full items-center justify-center text-sm text-ink-muted">加载中…</div>;
+    return (
+      <div className="startup-splash app-drag flex h-full items-center justify-center">
+        <div className="text-center">
+          <div className="startup-mark mx-auto flex h-11 w-11 items-center justify-center rounded-xl font-mono text-[11px] font-semibold tracking-[0.16em]">
+            AM
+          </div>
+          <p className="mt-3 text-[11px] tracking-[0.16em] text-ink-faint">正在唤醒工作台</p>
+        </div>
+      </div>
+    );
   }
 
   // First run: no machines yet — the add form is the whole page.

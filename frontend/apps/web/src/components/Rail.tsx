@@ -24,20 +24,25 @@ export function Rail({ onAddMachine }: { onAddMachine: () => void }) {
   const openMachine = useStore((s) => s.openMachine);
 
   return (
-    <nav className="am-rail app-drag flex w-[58px] flex-none flex-col items-center gap-2 border-r border-border bg-surface py-3">
+    <nav
+      aria-label="机器导航"
+      className="am-rail app-drag flex w-[68px] flex-none flex-col items-center gap-2 py-3"
+    >
       <button
         title="任务总览"
+        aria-label="任务总览"
         onClick={openOverview}
-        className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${
+        className={`rail-control relative flex h-10 w-10 items-center justify-center rounded-[13px] transition-all ${
           view === 'overview'
-            ? 'bg-accent-soft text-accent'
-            : 'text-ink-muted hover:bg-raised hover:text-ink'
+            ? 'rail-control-active'
+            : 'hover:-translate-y-px hover:bg-white/10'
         }`}
       >
         <IconGrid size={19} />
+        {view === 'overview' && <span className="rail-active-indicator" aria-hidden="true" />}
       </button>
 
-      <div className="my-1 w-6 border-t border-border" />
+      <div className="my-1 h-px w-7 bg-white/10" />
 
       {machines.map((m) => (
         <MachineAvatar
@@ -54,11 +59,14 @@ export function Rail({ onAddMachine }: { onAddMachine: () => void }) {
 
       <button
         title="添加机器"
+        aria-label="添加机器"
         onClick={onAddMachine}
-        className="flex h-10 w-10 items-center justify-center rounded-xl border border-dashed border-border-strong text-ink-muted transition-colors hover:border-accent hover:text-accent"
+        className="rail-control flex h-10 w-10 items-center justify-center rounded-[13px] border border-dashed border-white/20 transition-all hover:-translate-y-px hover:border-white/40 hover:bg-white/10"
       >
         <IconPlus size={17} />
       </button>
+
+      <div className="mt-auto mb-1 h-1.5 w-1.5 rounded-full bg-white/25" aria-hidden="true" />
     </nav>
   );
 }
@@ -86,21 +94,23 @@ function MachineAvatar({
     <div className="relative">
       <button
         title={`${machine.name}${online === false ? '（离线）' : ''} — 右键管理`}
+        aria-label={`${machine.name}${online === false ? '，离线' : online ? '，在线' : '，检测中'}`}
         onClick={onClick}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
           setMenu(true);
         }}
-        className={`relative flex h-10 w-10 items-center justify-center rounded-xl text-[11px] font-semibold transition-all ${
+        className={`rail-machine relative flex h-10 w-10 items-center justify-center rounded-[13px] text-[11px] font-semibold tracking-[0.04em] transition-all ${
           active
-            ? 'bg-accent-soft text-accent ring-2 ring-accent'
-            : 'bg-raised text-ink-muted hover:text-ink'
-        } ${online === false ? 'opacity-50' : ''}`}
+            ? 'rail-machine-active'
+            : 'hover:-translate-y-px hover:bg-white/12'
+        } ${online === false ? 'opacity-45' : ''}`}
       >
         {machineInitials(machine.name)}
+        {active && <span className="rail-active-indicator" aria-hidden="true" />}
         <span
-          className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface ${dotColor}`}
+          className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--am-rail-bg)] ${dotColor}`}
         />
         {runningCount > 0 && (
           <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-on-accent">
