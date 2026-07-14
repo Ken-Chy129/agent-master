@@ -195,7 +195,7 @@ cd android
 **近期可做（按价值）**
 1. **Android `:app` 在 Mac 上首次构建**：验证 Compose UI 真跑起来（`:core` 已测试，`:app` 是脚手架）。
 2. **桌面/Web 浏览器目视验证**：确认 UI 渲染、多机切换、目录选择、流式预览的实际效果。
-3. **首次发布 npm 包**：在 GitHub Actions 配置 `NPM_TOKEN` 后打新 tag；流水线会发布 `agent-master`，未配置 token 时仍会把 `.tgz` 附到 GitHub Release。
+3. **首次发布 npm 包**：在 GitHub Actions 配置 `NPM_TOKEN` 后打新 tag；流水线会发布 `@ken-chy129/agent-master`（命令仍为 `agent-master`），未配置 token 时仍会把 `.tgz` 附到 GitHub Release。
 4. **Codex provider**：实现 `provider.Provider` for `codex`（`codex app-server` JSON-RPC）。**注意本机无 codex CLI，无法验证**——需在有 codex 的机器上做。`internal/provider` 接口已预留。
 
 **render_state / 体验增强**

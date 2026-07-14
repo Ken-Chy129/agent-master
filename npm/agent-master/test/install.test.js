@@ -8,6 +8,16 @@ import test from 'node:test';
 import { installBinary } from '../lib/install.js';
 import { releasePlan } from '../lib/release.js';
 
+test('npm package uses the owned scope while preserving the CLI command', async () => {
+  const packageJSON = JSON.parse(
+    await readFile(new URL('../package.json', import.meta.url), 'utf8'),
+  );
+
+  assert.equal(packageJSON.name, '@ken-chy129/agent-master');
+  assert.equal(packageJSON.bin['agent-master'], 'bin/agent-master.js');
+  assert.equal(packageJSON.publishConfig.access, 'public');
+});
+
 test('releasePlan maps Node platform names to release assets', () => {
   assert.deepEqual(releasePlan({ version: '0.2.2', platform: 'darwin', arch: 'arm64' }), {
     version: '0.2.2',

@@ -21,7 +21,7 @@ const child = spawn(binaryPath, process.argv.slice(2), {
 
 child.on('error', (error) => {
   console.error(`Unable to run agent-master: ${error.message}`);
-  console.error('Try reinstalling it with: npm install -g agent-master');
+  console.error('Try reinstalling it with: npm install -g @ken-chy129/agent-master');
   process.exitCode = 1;
 });
 

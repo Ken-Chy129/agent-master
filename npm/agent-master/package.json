@@ -1,5 +1,5 @@
 {
-  "name": "agent-master",
+  "name": "@ken-chy129/agent-master",
   "version": "0.0.0-development",
   "description": "Install and run the native agent-master daemon",
   "type": "module",

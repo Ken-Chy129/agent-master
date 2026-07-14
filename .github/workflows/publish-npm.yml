@@ -1,0 +1,84 @@
+name: publish-npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing GitHub Release version to publish to npm
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Validate version and release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must use stable semver, for example 0.2.2" >&2
+            exit 1
+          fi
+
+          assets="$(gh release view "v${VERSION}" --json assets --jq '.assets[].name')"
+          for asset in \
+            agent-master-darwin-amd64 \
+            agent-master-darwin-arm64 \
+            agent-master-linux-amd64 \
+            agent-master-linux-arm64 \
+            agent-master-windows-amd64.exe \
+            agent-master-windows-arm64.exe
+          do
+            grep -Fxq "$asset" <<<"$assets" || {
+              echo "GitHub Release v${VERSION} is missing ${asset}" >&2
+              exit 1
+            }
+            grep -Fxq "${asset}.sha256" <<<"$assets" || {
+              echo "GitHub Release v${VERSION} is missing ${asset}.sha256" >&2
+              exit 1
+            }
+          done
+
+      - name: Test npm installer
+        working-directory: npm/agent-master
+        run: npm test
+
+      - name: Set package version
+        working-directory: npm/agent-master
+        env:
+          VERSION: ${{ inputs.version }}
+        run: npm version --no-git-tag-version "$VERSION"
+
+      - name: Build npm tarball
+        working-directory: npm/agent-master
+        run: mkdir -p release && npm pack --pack-destination release
+
+      - name: Publish npm package
+        working-directory: npm/agent-master
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
+
+      - name: Replace npm tarball on GitHub Release
+        working-directory: npm/agent-master
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          gh release delete-asset "v${VERSION}" "agent-master-${VERSION}.tgz" --yes || true
+          gh release upload "v${VERSION}" release/*.tgz --clobber
