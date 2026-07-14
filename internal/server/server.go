@@ -16,6 +16,7 @@ import (
 	"github.com/Ken-Chy129/agent-master/internal/session"
 	"github.com/Ken-Chy129/agent-master/internal/store"
 	"github.com/Ken-Chy129/agent-master/internal/version"
+	"github.com/Ken-Chy129/agent-master/internal/webui"
 )
 
 // Server holds the daemon's HTTP dependencies.
@@ -28,6 +29,10 @@ type Server struct {
 
 // New builds the HTTP server and its routes.
 func New(cfg *config.Config, st *store.Store, svc *session.Service) *Server {
+	return newServer(cfg, st, svc, webui.NewHandler(webui.Embedded()))
+}
+
+func newServer(cfg *config.Config, st *store.Store, svc *session.Service, web http.Handler) *Server {
 	s := &Server{cfg: cfg, store: st, svc: svc}
 
 	mux := http.NewServeMux()
@@ -48,6 +53,9 @@ func New(cfg *config.Config, st *store.Store, svc *session.Service) *Server {
 	mux.Handle("GET /api/workspaces", s.auth(http.HandlerFunc(s.handleWorkspaces)))
 	mux.Handle("GET /api/models", s.auth(http.HandlerFunc(s.handleModels)))
 	mux.Handle("GET /api/sessions/{id}/uploads/{name}", s.auth(http.HandlerFunc(s.handleUpload)))
+	// The browser client is additive: exact health/API routes above keep their
+	// existing behavior, while everything else is handled as a static SPA path.
+	mux.Handle("/", web)
 
 	s.http = &http.Server{
 		Addr:              cfg.Addr(),
