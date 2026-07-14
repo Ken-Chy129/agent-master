@@ -55,36 +55,33 @@ export function ConnectionSetup({
     <form
       onSubmit={submit}
       onClick={(e) => e.stopPropagation()}
-      className={`connection-form w-full rounded-2xl border border-border bg-surface ${
+      className={`connection-form relative w-full rounded-2xl border border-border bg-surface ${
         asModal ? 'max-w-md p-6 shadow-xl' : 'max-w-[29rem] p-6 shadow-xl sm:p-7'
       }`}
     >
-      <div className="mb-5 flex items-start gap-3">
-        <div className="connection-terminal flex h-9 w-9 flex-none items-center justify-center rounded-xl">
-          <IconTerminal size={17} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-semibold tracking-[0.14em] text-accent uppercase">
-            {asModal ? 'New connection' : 'Connection setup'}
-          </p>
-          <h2 className="mt-0.5 text-[17px] font-semibold tracking-[-0.015em]">
+      <div className={`mb-6 ${asModal ? 'pr-8' : ''}`}>
+        <div className="flex items-center gap-3">
+          <div className="connection-terminal flex h-10 w-10 flex-none items-center justify-center rounded-xl">
+            <IconTerminal size={18} />
+          </div>
+          <h2 className="text-[18px] font-semibold tracking-[-0.02em]">
             {asModal ? '添加机器' : '连接第一台机器'}
           </h2>
-          <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-            在目标机器运行 <code className="connection-command">agent-master pair</code>，然后填入返回的地址与 token。
-          </p>
         </div>
-        {asModal && (
-          <button
-            type="button"
-            onClick={onCancel}
-            aria-label="关闭"
-            className="connection-close flex h-7 w-7 flex-none items-center justify-center rounded-lg text-ink-faint"
-          >
-            <IconX size={14} />
-          </button>
-        )}
+        <p className="mt-3 text-[12.5px] leading-5.5 text-ink-muted">
+          在目标机器运行 <code className="connection-command">agent-master pair</code>，然后填入返回的地址与 token。
+        </p>
       </div>
+      {asModal && (
+        <button
+          type="button"
+          onClick={onCancel}
+          aria-label="关闭"
+          className="connection-close absolute top-5 right-5 flex h-8 w-8 items-center justify-center rounded-lg text-ink-faint"
+        >
+          <IconX size={15} />
+        </button>
+      )}
 
       <Field label="名称（可选）">
         <input
