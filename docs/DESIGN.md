@@ -278,7 +278,7 @@ Client              Go daemon                     claude CLI (子进程)
 每台机器只需：
 ```bash
 # 1) npm 下载并校验当前平台的原生二进制（也保留 install.sh/install.ps1）
-npm install -g agent-master
+npm install -g @ken-chy129/agent-master
 # 2) 装成后台服务并启动；同一端口同时提供 API 与 Web UI
 agent-master start
 # 3) 浏览器打开 http://127.0.0.1:8888，或用桌面 App 连接

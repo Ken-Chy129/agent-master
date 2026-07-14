@@ -1,10 +1,10 @@
-# agent-master
+# @ken-chy129/agent-master
 
 Installs the native `agent-master` daemon for macOS, Linux, or Windows from the
 matching GitHub Release and verifies its SHA-256 checksum.
 
 ```bash
-npm install -g agent-master
+npm install -g @ken-chy129/agent-master
 agent-master start
 ```
 

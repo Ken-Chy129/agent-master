@@ -135,7 +135,7 @@ use the tailnet URL (set it as `public_url`) — no public port exposure.
 **npm (recommended, macOS / Linux / Windows, Node.js 20+):**
 
 ```bash
-npm install -g agent-master
+npm install -g @ken-chy129/agent-master
 agent-master start
 # open http://127.0.0.1:8888
 ```
