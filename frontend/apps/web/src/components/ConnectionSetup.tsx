@@ -56,7 +56,7 @@ export function ConnectionSetup({
       onSubmit={submit}
       onClick={(e) => e.stopPropagation()}
       className={`connection-form w-full rounded-2xl border border-border bg-surface ${
-        asModal ? 'max-w-md p-6 shadow-xl' : 'max-w-[29rem] p-7'
+        asModal ? 'max-w-md p-6 shadow-xl' : 'max-w-[29rem] p-6 shadow-xl sm:p-7'
       }`}
     >
       <div className="mb-5 flex items-start gap-3">
@@ -67,9 +67,9 @@ export function ConnectionSetup({
           <p className="text-[10px] font-semibold tracking-[0.14em] text-accent uppercase">
             {asModal ? 'New connection' : 'Connection setup'}
           </p>
-          <h1 className="mt-0.5 text-[17px] font-semibold tracking-[-0.015em]">
+          <h2 className="mt-0.5 text-[17px] font-semibold tracking-[-0.015em]">
             {asModal ? '添加机器' : '连接第一台机器'}
-          </h1>
+          </h2>
           <p className="mt-1 text-xs leading-relaxed text-ink-muted">
             在目标机器运行 <code className="connection-command">agent-master pair</code>，然后填入返回的地址与 token。
           </p>
@@ -163,7 +163,7 @@ export function ConnectionSetup({
   return (
     <div className="connection-stage app-drag h-full overflow-y-auto">
       <main className="grid min-h-full lg:grid-cols-[minmax(0,1.05fr)_minmax(430px,0.95fr)]">
-        <section className="connection-intro flex min-h-[430px] items-center px-8 py-16 text-white lg:px-12">
+        <section className="connection-intro order-2 flex min-h-[430px] items-center px-8 py-16 text-white lg:order-1 lg:px-12">
           <div className="ml-auto w-full max-w-[34rem] lg:pr-8">
             <div className="flex items-center gap-2 text-[10px] font-semibold tracking-[0.2em] text-white/55 uppercase">
               <span className="h-1.5 w-1.5 rounded-full bg-[#78a9ff] shadow-[0_0_10px_#78a9ff]" />
@@ -191,10 +191,10 @@ export function ConnectionSetup({
           </div>
         </section>
 
-        <section className="flex items-center justify-center bg-canvas px-6 py-14 lg:px-10">
+        <section className="order-1 flex items-center justify-center bg-canvas px-5 py-8 sm:px-6 lg:order-2 lg:px-10 lg:py-14">
           <div className="w-full max-w-[29rem]">
             {form}
-            <p className="mt-4 text-center text-[10.5px] leading-relaxed text-ink-faint">
+            <p className="connection-storage-note mt-4 text-center text-[10.5px] leading-relaxed text-ink-faint">
               {desktop
                 ? 'Token 通过系统安全存储持久化，不会写入普通浏览器存储。'
                 : 'Token 保存在当前浏览器的本地存储中，请仅在可信设备上使用。'}

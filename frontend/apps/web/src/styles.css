@@ -208,6 +208,12 @@ body {
   background: var(--am-raised);
 }
 
+@media (max-width: 1023px) and (max-height: 560px) {
+  .connection-storage-note {
+    display: none;
+  }
+}
+
 @keyframes am-startup {
   0%,
   100% {
