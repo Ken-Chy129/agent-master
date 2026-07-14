@@ -135,8 +135,6 @@ jobs:
     permissions:
       contents: write
       id-token: write
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -163,7 +161,19 @@ jobs:
           name: ${{ github.ref_name }}
           files: npm/agent-master/release/*.tgz
 
+      - name: Check npm publishing credentials
+        id: npm-auth
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish npm package
-        if: env.NODE_AUTH_TOKEN != ''
+        if: steps.npm-auth.outputs.available == 'true'
         working-directory: npm/agent-master
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --provenance

@@ -16,6 +16,9 @@ export function releasePlan({ version, platform, arch, baseUrl }) {
   if (!cleanVersion || cleanVersion.includes('development')) {
     throw new Error('agent-master must be installed from a published package version');
   }
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(cleanVersion)) {
+    throw new Error(`agent-master requires a valid semantic version, got ${cleanVersion}`);
+  }
 
   const releasePlatform = platformNames[platform];
   const releaseArch = architectureNames[arch];
@@ -28,6 +31,9 @@ export function releasePlan({ version, platform, arch, baseUrl }) {
   const releaseBase =
     baseUrl?.replace(/\/+$/, '') ??
     `https://github.com/${REPOSITORY}/releases/download/v${cleanVersion}`;
+  if (new URL(releaseBase).protocol !== 'https:') {
+    throw new Error('agent-master release downloads require HTTPS');
+  }
 
   return {
     version: cleanVersion,

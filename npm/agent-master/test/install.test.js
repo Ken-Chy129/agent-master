@@ -34,6 +34,20 @@ test('releasePlan rejects unsupported platforms and development versions', () =>
     () => releasePlan({ version: '0.0.0-development', platform: 'darwin', arch: 'arm64' }),
     /published package version/,
   );
+  assert.throws(
+    () => releasePlan({ version: '../latest', platform: 'darwin', arch: 'arm64' }),
+    /valid semantic version/,
+  );
+  assert.throws(
+    () =>
+      releasePlan({
+        version: '0.2.2',
+        platform: 'darwin',
+        arch: 'arm64',
+        baseUrl: 'http://downloads.example.com/v0.2.2',
+      }),
+    /HTTPS/,
+  );
 });
 
 test('installBinary downloads and verifies the native executable', async () => {
@@ -80,5 +94,24 @@ test('installBinary refuses a checksum mismatch', async () => {
           : new Response('unexpected payload'),
     }),
     /checksum mismatch/,
+  );
+});
+
+test('installBinary rejects an oversized download', async () => {
+  const installDir = await mkdtemp(path.join(tmpdir(), 'agent-master-npm-'));
+
+  await assert.rejects(
+    installBinary({
+      version: '0.2.2',
+      platform: 'linux',
+      arch: 'x64',
+      installDir,
+      maxBinaryBytes: 4,
+      fetchImpl: async (url) =>
+        String(url).endsWith('.sha256')
+          ? new Response(`${'0'.repeat(64)}  agent-master-linux-amd64\n`)
+          : new Response('12345'),
+    }),
+    /exceeds 4 bytes/,
   );
 });

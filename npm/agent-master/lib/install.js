@@ -4,6 +4,9 @@ import path from 'node:path';
 
 import { releasePlan } from './release.js';
 
+const DEFAULT_MAX_BINARY_BYTES = 128 * 1024 * 1024;
+const MAX_CHECKSUM_BYTES = 8 * 1024;
+
 export async function installBinary({
   version,
   platform = process.platform,
@@ -11,6 +14,7 @@ export async function installBinary({
   installDir,
   baseUrl,
   fetchImpl = globalThis.fetch,
+  maxBinaryBytes = DEFAULT_MAX_BINARY_BYTES,
 }) {
   if (!installDir) throw new Error('installDir is required');
   if (typeof fetchImpl !== 'function') throw new Error('Node.js 20 or newer is required');
@@ -23,8 +27,11 @@ export async function installBinary({
   assertDownload(binaryResponse, plan.assetUrl);
   assertDownload(checksumResponse, plan.checksumUrl);
 
-  const binary = Buffer.from(await binaryResponse.arrayBuffer());
-  const checksumText = await checksumResponse.text();
+  const [binary, checksum] = await Promise.all([
+    readLimited(binaryResponse, maxBinaryBytes, plan.asset),
+    readLimited(checksumResponse, MAX_CHECKSUM_BYTES, `${plan.asset}.sha256`),
+  ]);
+  const checksumText = checksum.toString('utf8');
   const expected = checksumText.trim().split(/\s+/)[0]?.toLowerCase();
   if (!expected || !/^[a-f0-9]{64}$/.test(expected)) {
     throw new Error(`invalid checksum file for ${plan.asset}`);
@@ -43,6 +50,34 @@ export async function installBinary({
   await rm(binaryPath, { force: true });
   await rename(temporaryPath, binaryPath);
   return binaryPath;
+}
+
+async function readLimited(response, maxBytes, label) {
+  const declaredLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new Error(`${label} exceeds ${maxBytes} bytes`);
+  }
+
+  if (!response.body) {
+    const data = Buffer.from(await response.arrayBuffer());
+    if (data.length > maxBytes) throw new Error(`${label} exceeds ${maxBytes} bytes`);
+    return data;
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new Error(`${label} exceeds ${maxBytes} bytes`);
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks, total);
 }
 
 function assertDownload(response, url) {

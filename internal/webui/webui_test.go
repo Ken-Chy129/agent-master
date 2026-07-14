@@ -28,6 +28,15 @@ func TestHandlerServesIndexAndStaticAssets(t *testing.T) {
 	if got := index.Header().Get("Cache-Control"); got != "no-cache" {
 		t.Fatalf("index Cache-Control = %q, want no-cache", got)
 	}
+	if got := index.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if got := index.Header().Get("X-Frame-Options"); got != "DENY" {
+		t.Fatalf("X-Frame-Options = %q, want DENY", got)
+	}
+	if got := index.Header().Get("Content-Security-Policy"); got == "" {
+		t.Fatal("missing Content-Security-Policy")
+	}
 
 	asset := httptest.NewRecorder()
 	h.ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "/assets/app.js", nil))
