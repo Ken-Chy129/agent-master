@@ -20,8 +20,8 @@ private overlay network like Tailscale.
 ## Quick start (from source)
 
 ```bash
-make build                 # → dist/agent-master (static, CGO_ENABLED=0)
-./dist/agent-master serve  # listens on :8888
+make build                 # builds Web assets + dist/agent-master
+./dist/agent-master serve  # API + Web UI on http://127.0.0.1:8888
 ```
 
 Verify:
@@ -82,7 +82,19 @@ between them. Get a machine's connection info with:
 agent-master pair    # prints base URLs, token, an agentmaster:// deep link, and a QR
 ```
 
-**Web** (`frontend/`, npm workspaces):
+**Web**: production builds are embedded in the native daemon. After
+`agent-master start`, open:
+
+```text
+http://127.0.0.1:8888
+```
+
+The first-run form defaults to the page's own origin, so a LAN or Tailscale URL
+also connects to the daemon that served it. Paste the token printed by
+`agent-master start` or `agent-master pair`. Browser tokens stay in that
+browser's local storage.
+
+For Web development (`frontend/`, npm workspaces):
 
 ```bash
 cd frontend && npm install
@@ -94,7 +106,8 @@ npm run dev -w @agent-master/web    # Vite on http://localhost:5173
 
 **Desktop** (Electron, `frontend/apps/desktop`): loads the same web UI, stores
 tokens in the OS-encrypted secure store (Electron `safeStorage`), and handles
-`agentmaster://` pairing deep links.
+`agentmaster://` pairing deep links. It connects to the daemon over its existing
+API, so the desktop app and embedded Web client can be open at the same time.
 
 Download the prebuilt app from the
 [Releases page](https://github.com/Ken-Chy129/agent-master/releases/latest):
@@ -119,8 +132,21 @@ use the tailnet URL (set it as `public_url`) — no public port exposure.
 
 ## Install (release)
 
-Installs the latest release binary into `~/.local/bin` (no sudo). Override with
-`INSTALL_DIR=` (a system dir like `/usr/local/bin` then uses sudo).
+**npm (recommended, macOS / Linux / Windows, Node.js 20+):**
+
+```bash
+npm install -g agent-master
+agent-master start
+# open http://127.0.0.1:8888
+```
+
+The npm installer downloads the matching native release binary and verifies its
+SHA-256 checksum. The daemon remains a standalone Go process; Node only provides
+the installation and command shim.
+
+**Native installer:** installs the latest release binary into `~/.local/bin`
+(no sudo). Override with `INSTALL_DIR=` (a system dir like `/usr/local/bin` then
+uses sudo).
 
 **Linux / macOS**:
 
@@ -128,7 +154,7 @@ Installs the latest release binary into `~/.local/bin` (no sudo). Override with
 curl -fsSL https://raw.githubusercontent.com/Ken-Chy129/agent-master/main/install.sh | bash
 # ensure ~/.local/bin is on PATH (the installer prints this if needed)
 agent-master start   # install + start the background service (systemd / launchd)
-agent-master pair    # show URL/token/QR to connect a client
+agent-master pair    # show URL/token/QR for desktop or remote clients
 ```
 
 **Windows** (10 1903+, PowerShell):
@@ -152,9 +178,10 @@ cmd/agent-master/   CLI entry: start / stop / status / pair / token / serve / ve
 internal/
   config/           ~/.agent-master/config.json (host, port, token)
   store/            SQLite (modernc.org/sqlite): event ledger + projections
-  server/           HTTP: /health + token-protected API
+  server/           HTTP: embedded Web UI + /health + token-protected API
   service/          systemd / launchd / Windows Run-key install
   version/          build version
+npm/agent-master/   npm installer + native command shim
 install.sh          release installer (Linux/macOS)
 install.ps1         release installer (Windows)
 Makefile            build / release (cross-compile)

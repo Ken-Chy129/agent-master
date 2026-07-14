@@ -274,14 +274,15 @@ Client              Go daemon                     claude CLI (子进程)
 
 ---
 
-## 9. 部署（单二进制 + service install，学 Garyx）
+## 9. 部署（npm 安装入口 + 内嵌 Web + 原生 service）
 每台机器只需：
 ```bash
-# 1) 装二进制（release 下载脚本 或 go install）
-curl -fsSL https://.../install.sh | bash        # 放到 /usr/local/bin/agent-master
-# 2) 装成后台服务并启动
-agent-master service install                     # 写 systemd(Linux)/launchd(macOS) 用户服务
-agent-master token                              # 拿 token 填进客户端
+# 1) npm 下载并校验当前平台的原生二进制（也保留 install.sh/install.ps1）
+npm install -g agent-master
+# 2) 装成后台服务并启动；同一端口同时提供 API 与 Web UI
+agent-master start
+# 3) 浏览器打开 http://127.0.0.1:8888，或用桌面 App 连接
+agent-master pair
 ```
 - **claude 必须已装且已登录本机**（原生跑 → 直接用本机 `~/.claude`，无需 Docker 挂凭据，这是原生比 Docker 省事的地方）。
 - 构建：`CGO_ENABLED=0 go build`（配合 modernc.org/sqlite 出真·静态二进制）；`GOOS/GOARCH` 交叉编译各平台。
