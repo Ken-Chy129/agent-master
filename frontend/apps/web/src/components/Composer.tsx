@@ -253,8 +253,8 @@ export function Composer() {
   };
 
   return (
-    <div className="px-6 pt-3 pb-5">
-      <div className="mx-auto max-w-[54rem]">
+    <div className="px-4 pt-4 pb-5 lg:px-8">
+      <div className="mx-auto w-full max-w-[68rem]">
         <div
           className={`composer-card relative overflow-hidden rounded-2xl border bg-surface transition-all ${
             dragging ? 'composer-card-dragging' : ''
@@ -331,10 +331,10 @@ export function Composer() {
                 : '描述目标、补充上下文，或粘贴一张截图…'
             }
             rows={1}
-            className="block max-h-50 min-h-[76px] w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-base leading-relaxed outline-none placeholder:text-ink-faint"
+            className="block max-h-50 min-h-[84px] w-full resize-none bg-transparent px-4 pt-4 pb-2 text-[15px] leading-6.5 outline-none placeholder:text-ink-faint"
           />
 
-          <div className="flex items-center gap-2 border-t border-border/70 px-3 py-2.5">
+          <div className="flex items-center gap-2 px-3 pt-1 pb-3">
             <input
               ref={fileRef}
               type="file"
@@ -385,7 +385,7 @@ export function Composer() {
               </select>
             )}
 
-            <span className="hidden text-[10.5px] text-ink-faint sm:inline">
+            <span className="composer-shortcut hidden text-[10.5px] text-ink-faint sm:inline">
               {runActive ? '可继续编辑草稿 · 停止后发送' : 'Enter 发送 · Shift+Enter 换行'}
             </span>
             <div className="flex-1" />

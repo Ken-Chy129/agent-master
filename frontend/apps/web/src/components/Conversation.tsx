@@ -11,6 +11,7 @@ import {
   IconCheck,
   IconChevronRight,
   IconCopy,
+  IconFolder,
   IconImage,
   IconPanelLeft,
   IconTerminal,
@@ -172,7 +173,7 @@ export function Conversation() {
 
   return (
     <>
-      <header className="app-drag flex items-center gap-3 border-b border-border bg-surface px-4 py-2.5">
+      <header className="app-drag flex min-h-14 items-center gap-3 border-b border-border bg-surface px-4 py-2.5">
         {columnCollapsed && (
           <button
             title="展开会话列表"
@@ -182,14 +183,15 @@ export function Conversation() {
             <IconPanelLeft size={15} />
           </button>
         )}
-        <div className="min-w-0 flex-1">
-          <div className="mb-0.5 flex items-center gap-1.5 font-mono text-[9.5px] tracking-[0.06em] text-ink-faint uppercase">
-            <span className="truncate">{machine?.name ?? 'Machine'}</span>
-            <span aria-hidden="true">/</span>
-            <span className="truncate">{projectName ?? 'Workspace'}</span>
-          </div>
-          <div className="truncate text-[13.5px] font-semibold tracking-[-0.01em]">
-            {currentSessionMeta?.title || '会话'}
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <IconFolder size={16} className="flex-none text-ink-muted" />
+          <div className="min-w-0">
+            <div className="truncate text-[14px] font-semibold tracking-[-0.015em]">
+              {currentSessionMeta?.title || '会话'}
+            </div>
+            <div className="mt-0.5 truncate text-[10.5px] text-ink-faint">
+              {projectName ?? 'Workspace'}
+            </div>
           </div>
         </div>
         <div className="ml-auto flex flex-none items-center gap-2">
@@ -213,7 +215,7 @@ export function Conversation() {
       >
         <div className="flex min-h-full flex-col">
           <div className="flex-1">
-            <div className="mx-auto flex max-w-[54rem] flex-col gap-5 px-6 pt-7">
+            <div className="conversation-column mx-auto flex w-full max-w-[68rem] flex-col gap-6 px-4 pt-7 lg:px-8 lg:pt-8">
               {connecting && <div className="py-10 text-center text-sm text-ink-muted">加载中…</div>}
               {!connecting && render.rows.length === 0 && (
                 <div className="mx-auto flex max-w-sm flex-col items-center py-16 text-center">

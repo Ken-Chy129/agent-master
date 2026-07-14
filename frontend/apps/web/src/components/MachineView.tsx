@@ -135,7 +135,7 @@ function SessionColumn({
   const claudeAvailable = runtime.info?.providers?.claude?.available;
 
   return (
-    <aside className="session-column flex w-[304px] flex-none flex-col border-r border-border bg-surface">
+    <aside className="session-column flex flex-none flex-col border-r border-border bg-surface">
       <div className="app-drag px-4 pt-4 pb-3">
         <div className="flex items-center gap-2">
           <span className="truncate text-[15px] font-semibold tracking-[-0.015em]">{machine.name}</span>
