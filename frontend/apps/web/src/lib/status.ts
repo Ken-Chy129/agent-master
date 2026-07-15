@@ -39,7 +39,7 @@ export function statusLine(s: RecentSession, status: SessionStatus): string {
   if (status === 'running') return preview || '正在运行…';
   if (status === 'attention') {
     if (s.lastRunState === 'failed') return preview ? `运行失败：${preview}` : '运行失败';
-    if (s.lastRunState === 'interrupted') return '已中断，等待你的下一步指示';
+    if (s.lastRunState === 'interrupted') return preview;
     return preview || '有新回复';
   }
   return preview;

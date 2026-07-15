@@ -53,27 +53,7 @@ func (c *Claude) Run(ctx context.Context, o RunOptions, onEvent func(StreamEvent
 		addDirs = imageDirs(o.Images)
 	}
 
-	args := []string{
-		"-p", message,
-		"--output-format", "stream-json",
-		"--include-partial-messages", // emit token-level content_block_delta events
-		"--verbose",                  // required for stream-json to emit the full event stream
-	}
-	for _, d := range addDirs {
-		args = append(args, "--add-dir", d)
-	}
-	if o.NativeSessionID != "" {
-		args = append(args, "--resume", o.NativeSessionID)
-	}
-	if o.Model != "" {
-		args = append(args, "--model", o.Model)
-	}
-	if o.Effort != "" {
-		args = append(args, "--effort", o.Effort)
-	}
-	if o.PermissionMode != "" {
-		args = append(args, "--permission-mode", o.PermissionMode)
-	}
+	args := buildClaudeArgs(o, message, addDirs)
 
 	cmd := exec.CommandContext(ctx, c.Bin, args...)
 	cmd.Dir = o.WorkspaceDir
@@ -152,6 +132,31 @@ func (c *Claude) Run(ctx context.Context, o RunOptions, onEvent func(StreamEvent
 		return res, errors.New("claude stream ended without a session id")
 	}
 	return res, nil
+}
+
+func buildClaudeArgs(o RunOptions, message string, addDirs []string) []string {
+	args := []string{
+		"-p", message,
+		"--output-format", "stream-json",
+		"--include-partial-messages", // emit token-level content_block_delta events
+		"--verbose",                  // required for stream-json to emit the full event stream
+	}
+	for _, d := range addDirs {
+		args = append(args, "--add-dir", d)
+	}
+	if o.NativeSessionID != "" {
+		args = append(args, "--resume", o.NativeSessionID)
+	}
+	if o.Model != "" {
+		args = append(args, "--model", o.Model)
+	}
+	if o.Effort != "" {
+		args = append(args, "--effort", o.Effort)
+	}
+	if o.PermissionMode != "" {
+		args = append(args, "--permission-mode", o.PermissionMode)
+	}
+	return args
 }
 
 func handleMessage(msg *claudeMsg, res *RunResult, onEvent func(StreamEvent)) {
