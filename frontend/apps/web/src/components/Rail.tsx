@@ -1,5 +1,10 @@
 import { useState } from 'react';
 import type { MachineProfile } from '@agent-master/core';
+import {
+  machineActivityCounts,
+  machineBadge,
+  type MachineActivityCounts,
+} from '../lib/machineActivity.js';
 import type { DropPlacement } from '../lib/machineOrder.js';
 import { EMPTY_RUNTIME, useStore } from '../store.js';
 import { ConfirmDialog } from './ConfirmDialog.js';
@@ -14,11 +19,12 @@ export function machineInitials(name: string): string {
 
 /**
  * The far-left machine rail: overview entry, one avatar per machine (online
- * dot + active-run badge; right-click to manage), and "add machine".
+ * dot + attention/run badge; right-click to manage), and "add machine".
  */
 export function Rail({ onAddMachine }: { onAddMachine: () => void }) {
   const machines = useStore((s) => s.machines);
   const runtimes = useStore((s) => s.runtimes);
+  const seenSeq = useStore((s) => s.seenSeq);
   const view = useStore((s) => s.view);
   const activeMachineId = useStore((s) => s.activeMachineId);
   const openOverview = useStore((s) => s.openOverview);
@@ -74,68 +80,69 @@ export function Rail({ onAddMachine }: { onAddMachine: () => void }) {
 
       <div className="my-1 h-px w-7 bg-white/10" />
 
-      {machines.map((m) => (
-        <div
-          key={m.id}
-          draggable
-          onDragStart={(event) => {
-            setDraggedId(m.id);
-            event.dataTransfer.effectAllowed = 'move';
-            event.dataTransfer.setData('text/plain', m.id);
-          }}
-          onDragOver={(event) => {
-            if (!draggedId || draggedId === m.id) return;
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'move';
-            const rect = event.currentTarget.getBoundingClientRect();
-            const placement: DropPlacement =
-              event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
-            setDropTarget({ id: m.id, placement });
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            if (draggedId && draggedId !== m.id) {
+      {machines.map((m) => {
+        const runtime = runtimes[m.id] ?? EMPTY_RUNTIME;
+        return (
+          <div
+            key={m.id}
+            draggable
+            onDragStart={(event) => {
+              setDraggedId(m.id);
+              event.dataTransfer.effectAllowed = 'move';
+              event.dataTransfer.setData('text/plain', m.id);
+            }}
+            onDragOver={(event) => {
+              if (!draggedId || draggedId === m.id) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'move';
               const rect = event.currentTarget.getBoundingClientRect();
               const placement: DropPlacement =
                 event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
-              const oldIndex = machines.findIndex((item) => item.id === draggedId);
-              const targetIndex = machines.findIndex((item) => item.id === m.id);
-              const moved = machines[oldIndex];
-              void reorderMachine(draggedId, m.id, placement);
-              const nextIndex =
-                placement === 'before'
-                  ? targetIndex - (oldIndex < targetIndex ? 1 : 0)
-                  : targetIndex + (oldIndex > targetIndex ? 1 : 0);
-              if (moved) {
-                setReorderAnnouncement(
-                  `${moved.name} 已移动到第 ${nextIndex + 1} 位，共 ${machines.length} 台机器`,
-                );
+              setDropTarget({ id: m.id, placement });
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              if (draggedId && draggedId !== m.id) {
+                const rect = event.currentTarget.getBoundingClientRect();
+                const placement: DropPlacement =
+                  event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                const oldIndex = machines.findIndex((item) => item.id === draggedId);
+                const targetIndex = machines.findIndex((item) => item.id === m.id);
+                const moved = machines[oldIndex];
+                void reorderMachine(draggedId, m.id, placement);
+                const nextIndex =
+                  placement === 'before'
+                    ? targetIndex - (oldIndex < targetIndex ? 1 : 0)
+                    : targetIndex + (oldIndex > targetIndex ? 1 : 0);
+                if (moved) {
+                  setReorderAnnouncement(
+                    `${moved.name} 已移动到第 ${nextIndex + 1} 位，共 ${machines.length} 台机器`,
+                  );
+                }
               }
-            }
-            clearDrag();
-          }}
-          onDragEnd={clearDrag}
-          className={`rail-machine-slot relative rounded-[13px] ${
-            draggedId === m.id ? 'rail-machine-dragging' : ''
-          } ${
-            dropTarget?.id === m.id
-              ? `rail-machine-drop-${dropTarget.placement}`
-              : ''
-          }`}
-        >
-          <MachineAvatar
-            machine={m}
-            active={view === 'machine' && activeMachineId === m.id}
-            onClick={() => openMachine(m.id)}
-            onMoveUp={() => moveWithKeyboard(m, -1)}
-            onMoveDown={() => moveWithKeyboard(m, 1)}
-            runningCount={
-              (runtimes[m.id] ?? EMPTY_RUNTIME).sessions.filter((s) => s.activeRunId).length
-            }
-            online={(runtimes[m.id] ?? EMPTY_RUNTIME).online}
-          />
-        </div>
-      ))}
+              clearDrag();
+            }}
+            onDragEnd={clearDrag}
+            className={`rail-machine-slot relative rounded-[13px] ${
+              draggedId === m.id ? 'rail-machine-dragging' : ''
+            } ${
+              dropTarget?.id === m.id
+                ? `rail-machine-drop-${dropTarget.placement}`
+                : ''
+            }`}
+          >
+            <MachineAvatar
+              machine={m}
+              active={view === 'machine' && activeMachineId === m.id}
+              onClick={() => openMachine(m.id)}
+              onMoveUp={() => moveWithKeyboard(m, -1)}
+              onMoveDown={() => moveWithKeyboard(m, 1)}
+              activity={machineActivityCounts(runtime.sessions, seenSeq)}
+              online={runtime.online}
+            />
+          </div>
+        );
+      })}
 
       <button
         title="添加机器"
@@ -155,7 +162,7 @@ function MachineAvatar({
   machine,
   active,
   online,
-  runningCount,
+  activity,
   onClick,
   onMoveUp,
   onMoveDown,
@@ -163,7 +170,7 @@ function MachineAvatar({
   machine: MachineProfile;
   active: boolean;
   online: boolean | null;
-  runningCount: number;
+  activity: MachineActivityCounts;
   onClick: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
@@ -174,11 +181,14 @@ function MachineAvatar({
 
   const dotColor =
     online === null ? 'bg-ink-faint' : online ? 'bg-success' : 'bg-ink-faint';
+  const badge = machineBadge(activity);
+  const connectionLabel = online === false ? '，离线' : online ? '，在线' : '，检测中';
+  const activityLabel = badge ? `，${badge.label}` : '';
   return (
     <div className="relative">
       <button
         title={`${machine.name}${online === false ? '（离线）' : ''} — 拖动排序，右键管理`}
-        aria-label={`${machine.name}${online === false ? '，离线' : online ? '，在线' : '，检测中'}`}
+        aria-label={`${machine.name}${connectionLabel}${activityLabel}`}
         aria-describedby="machine-reorder-help"
         onClick={onClick}
         onKeyDown={(event) => {
@@ -208,9 +218,17 @@ function MachineAvatar({
         <span
           className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--am-rail-bg)] ${dotColor}`}
         />
-        {runningCount > 0 && (
-          <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-on-accent">
-            {runningCount}
+        {badge && (
+          <span
+            title={badge.label}
+            aria-hidden="true"
+            className={`absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold shadow-sm ${
+              badge.kind === 'attention'
+                ? 'bg-warn-solid text-white'
+                : 'bg-accent text-on-accent'
+            }`}
+          >
+            {badge.count}
           </span>
         )}
       </button>
