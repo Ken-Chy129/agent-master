@@ -1,16 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ModelInfo, SendImage } from '@agent-master/core';
+import type { SendImage } from '@agent-master/core';
 import { composerSendSettlement } from '../lib/composerSend.js';
+import { modelControlState } from '../lib/modelControls.js';
 import { useStore } from '../store.js';
 import { IconImage, IconSend, IconStop, IconX } from './icons.js';
-
-/** Shown until the daemon's live model list loads (or if it can't be fetched). */
-const FALLBACK_MODELS: ModelInfo[] = [
-  { id: '', label: '默认模型' },
-  { id: 'opus', label: 'Opus', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
-  { id: 'sonnet', label: 'Sonnet', efforts: ['low', 'medium', 'high', 'max'] },
-  { id: 'haiku', label: 'Haiku', efforts: ['low', 'medium', 'high'] },
-];
+import { SelectMenu } from './SelectMenu.js';
 
 /** All effort levels, with Chinese labels; filtered per model at render time. */
 const EFFORT_LABELS: Record<string, string> = {
@@ -78,9 +72,9 @@ export function Composer() {
   const meta = useStore((s) => s.currentSessionMeta);
   const machineId = useStore((s) => s.currentSessionMachineId);
   const fetchedModels = useStore((s) => (machineId ? s.modelsByMachine[machineId] : undefined));
-  // Always have a usable list so the picker shows even against a daemon that
-  // predates /api/models or when the live fetch fails.
-  const models = fetchedModels && fetchedModels.length > 0 ? fetchedModels : FALLBACK_MODELS;
+  const modelCatalogStatus = useStore((s) =>
+    machineId ? (s.modelCatalogStatusByMachine[machineId] ?? 'idle') : 'idle',
+  );
 
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -143,7 +137,8 @@ export function Composer() {
     [],
   );
 
-  const selectedModel = models?.find((m) => m.id === model);
+  const modelState = modelControlState(modelCatalogStatus, fetchedModels ?? [], model);
+  const selectedModel = modelState.options.find((item) => item.id === modelState.value);
   // undefined (default model) → allow all; [] (known no support) → hide.
   const effortLevels = selectedModel?.efforts;
   const showEffort = effortLevels === undefined || effortLevels.length > 0;
@@ -193,7 +188,7 @@ export function Composer() {
   const onModelChange = (next: string) => {
     setModel(next);
     // Drop an effort the new model doesn't support.
-    const m = models?.find((x) => x.id === next);
+    const m = modelState.options.find((item) => item.id === next);
     if (effort && m?.efforts && !m.efforts.includes(effort)) setEffort('');
   };
 
@@ -214,7 +209,11 @@ export function Composer() {
     saveImageDraft(targetSessionId, []);
     if (taRef.current) taRef.current.style.height = 'auto';
     try {
-      const sent = await sendMessage(value, { model, effort, images: toSend });
+      const sent = await sendMessage(value, {
+        model: modelState.disabled ? undefined : modelState.value,
+        effort: modelState.disabled ? undefined : effort,
+        images: toSend,
+      });
       const settlement = composerSendSettlement(sent, targetSessionId, sessionIdRef.current);
       if (settlement.releaseImages) {
         pendingImages.forEach((img) => URL.revokeObjectURL(img.url));
@@ -355,34 +354,40 @@ export function Composer() {
               <IconImage size={15} />
             </button>
 
-            <select
-              value={model}
-              onChange={(e) => onModelChange(e.target.value)}
-              title="模型"
-              aria-label="模型"
-              className="composer-select max-w-[9rem] truncate rounded-md px-2 py-1 text-[11px] outline-none"
-            >
-              {models.map((m) => (
-                <option key={m.id || 'default'} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-            {showEffort && (
-              <select
+            <SelectMenu
+              value={modelState.value}
+              options={modelState.options.map((item) => ({
+                value: item.id,
+                label: item.label,
+                description: item.description,
+              }))}
+              onChange={onModelChange}
+              ariaLabel="模型"
+              displayLabel={modelState.label}
+              disabled={modelState.disabled}
+              title={
+                modelCatalogStatus === 'unavailable'
+                  ? '当前机器的 agent-master 服务端版本不支持模型切换，请更新并重启服务端'
+                  : '模型'
+              }
+              placement="top"
+              buttonClassName="composer-select-trigger max-w-[10rem]"
+            />
+            {!modelState.disabled && showEffort && (
+              <SelectMenu
                 value={effort}
-                onChange={(e) => setEffort(e.target.value)}
-                title="思考等级"
-                aria-label="思考等级"
-                className="composer-select rounded-md px-2 py-1 text-[11px] outline-none"
-              >
-                <option value="">思考: 默认</option>
-                {effortOpts.map((lvl) => (
-                  <option key={lvl} value={lvl}>
-                    思考: {EFFORT_LABELS[lvl] ?? lvl}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: '', label: '思考: 默认' },
+                  ...effortOpts.map((level) => ({
+                    value: level,
+                    label: `思考: ${EFFORT_LABELS[level] ?? level}`,
+                  })),
+                ]}
+                onChange={setEffort}
+                ariaLabel="思考等级"
+                placement="top"
+                buttonClassName="composer-select-trigger"
+              />
             )}
 
             <div className="flex-1" />

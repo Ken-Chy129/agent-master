@@ -6,12 +6,12 @@ import { useEscape } from '../lib/useEscape.js';
 import { EMPTY_RENDER, useStore } from '../store.js';
 import type { ImageRef } from '@agent-master/core';
 import { Composer } from './Composer.js';
+import { ConversationTitle } from './ConversationTitle.js';
 import {
   IconArrowDown,
   IconCheck,
   IconChevronRight,
   IconCopy,
-  IconFolder,
   IconImage,
   IconPanelLeft,
   IconTerminal,
@@ -147,9 +147,6 @@ export function Conversation() {
 
   const columnCollapsed = useStore((s) => s.sessionColumnCollapsed);
   const toggleColumn = useStore((s) => s.toggleSessionColumn);
-  const projectName = currentSessionMeta?.workspaceDir
-    ? currentSessionMeta.workspaceDir.replace(/\/+$/, '').split('/').filter(Boolean).pop()
-    : null;
 
   const connecting = streamStatus === 'connecting' && render.rows.length === 0;
 
@@ -183,17 +180,7 @@ export function Conversation() {
             <IconPanelLeft size={15} />
           </button>
         )}
-        <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          <IconFolder size={16} className="flex-none text-ink-muted" />
-          <div className="min-w-0">
-            <div className="truncate text-[14px] font-semibold tracking-[-0.015em]">
-              {currentSessionMeta?.title || '会话'}
-            </div>
-            <div className="mt-0.5 truncate text-[10.5px] text-ink-faint">
-              {projectName ?? 'Workspace'}
-            </div>
-          </div>
-        </div>
+        <ConversationTitle title={currentSessionMeta?.title} />
         <div className="ml-auto flex flex-none items-center gap-2">
           {currentSessionMeta?.model && (
             <span className="rounded-md border border-border bg-raised/65 px-2 py-1 font-mono text-[9.5px] text-ink-muted">

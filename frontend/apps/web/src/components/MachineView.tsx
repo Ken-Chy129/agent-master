@@ -19,6 +19,7 @@ import {
 import { ConfirmDialog } from './ConfirmDialog.js';
 import { Menu, MenuItem } from './Menu.js';
 import { NewSessionModal } from './NewSessionModal.js';
+import { SelectMenu } from './SelectMenu.js';
 
 const GROUP_MODE_KEY = 'agent-master.groupMode';
 const COLLAPSED_KEY = 'agent-master.collapsedGroups';
@@ -197,19 +198,14 @@ function SessionColumn({
               </button>
             )}
           </div>
-          <select
+          <SelectMenu
             value={groupMode}
-            onChange={(e) => changeGroupMode(e.target.value as GroupMode)}
-            title="归类方式"
-            aria-label="会话归类方式"
-            className="session-group-select w-[92px] rounded-xl px-2.5 py-2 text-[11.5px] outline-none"
-          >
-            {GROUP_MODES.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => changeGroupMode(value as GroupMode)}
+            options={GROUP_MODES.map((mode) => ({ value: mode.value, label: mode.label }))}
+            ariaLabel="会话归类方式"
+            placement="bottom"
+            buttonClassName="session-group-trigger w-[104px] py-2 text-[11.5px]"
+          />
         </div>
       </div>
 

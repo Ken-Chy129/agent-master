@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { MachineProfile } from '@agent-master/core';
+import type { DropPlacement } from '../lib/machineOrder.js';
 import { EMPTY_RUNTIME, useStore } from '../store.js';
 import { ConfirmDialog } from './ConfirmDialog.js';
 import { IconGrid, IconPlus, IconTrash } from './icons.js';
@@ -22,12 +23,41 @@ export function Rail({ onAddMachine }: { onAddMachine: () => void }) {
   const activeMachineId = useStore((s) => s.activeMachineId);
   const openOverview = useStore((s) => s.openOverview);
   const openMachine = useStore((s) => s.openMachine);
+  const reorderMachine = useStore((s) => s.reorderMachine);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{
+    id: string;
+    placement: DropPlacement;
+  } | null>(null);
+  const [reorderAnnouncement, setReorderAnnouncement] = useState('');
+
+  const clearDrag = () => {
+    setDraggedId(null);
+    setDropTarget(null);
+  };
+
+  const moveWithKeyboard = (machine: MachineProfile, direction: -1 | 1) => {
+    const index = machines.findIndex((item) => item.id === machine.id);
+    const target = machines[index + direction];
+    if (!target) return;
+    const placement: DropPlacement = direction < 0 ? 'before' : 'after';
+    void reorderMachine(machine.id, target.id, placement);
+    setReorderAnnouncement(
+      `${machine.name} 已移动到第 ${index + direction + 1} 位，共 ${machines.length} 台机器`,
+    );
+  };
 
   return (
     <nav
       aria-label="机器导航"
       className="am-rail app-drag flex w-[68px] flex-none flex-col items-center gap-2 py-3"
     >
+      <span id="machine-reorder-help" className="sr-only">
+        可拖动机器调整顺序，也可聚焦机器后按 Alt 加上箭头或下箭头移动。
+      </span>
+      <span className="sr-only" aria-live="polite">
+        {reorderAnnouncement}
+      </span>
       <button
         title="任务总览"
         aria-label="任务总览"
@@ -45,16 +75,66 @@ export function Rail({ onAddMachine }: { onAddMachine: () => void }) {
       <div className="my-1 h-px w-7 bg-white/10" />
 
       {machines.map((m) => (
-        <MachineAvatar
+        <div
           key={m.id}
-          machine={m}
-          active={view === 'machine' && activeMachineId === m.id}
-          onClick={() => openMachine(m.id)}
-          runningCount={
-            (runtimes[m.id] ?? EMPTY_RUNTIME).sessions.filter((s) => s.activeRunId).length
-          }
-          online={(runtimes[m.id] ?? EMPTY_RUNTIME).online}
-        />
+          draggable
+          onDragStart={(event) => {
+            setDraggedId(m.id);
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', m.id);
+          }}
+          onDragOver={(event) => {
+            if (!draggedId || draggedId === m.id) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            const rect = event.currentTarget.getBoundingClientRect();
+            const placement: DropPlacement =
+              event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+            setDropTarget({ id: m.id, placement });
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            if (draggedId && draggedId !== m.id) {
+              const rect = event.currentTarget.getBoundingClientRect();
+              const placement: DropPlacement =
+                event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+              const oldIndex = machines.findIndex((item) => item.id === draggedId);
+              const targetIndex = machines.findIndex((item) => item.id === m.id);
+              const moved = machines[oldIndex];
+              void reorderMachine(draggedId, m.id, placement);
+              const nextIndex =
+                placement === 'before'
+                  ? targetIndex - (oldIndex < targetIndex ? 1 : 0)
+                  : targetIndex + (oldIndex > targetIndex ? 1 : 0);
+              if (moved) {
+                setReorderAnnouncement(
+                  `${moved.name} 已移动到第 ${nextIndex + 1} 位，共 ${machines.length} 台机器`,
+                );
+              }
+            }
+            clearDrag();
+          }}
+          onDragEnd={clearDrag}
+          className={`rail-machine-slot relative rounded-[13px] ${
+            draggedId === m.id ? 'rail-machine-dragging' : ''
+          } ${
+            dropTarget?.id === m.id
+              ? `rail-machine-drop-${dropTarget.placement}`
+              : ''
+          }`}
+        >
+          <MachineAvatar
+            machine={m}
+            active={view === 'machine' && activeMachineId === m.id}
+            onClick={() => openMachine(m.id)}
+            onMoveUp={() => moveWithKeyboard(m, -1)}
+            onMoveDown={() => moveWithKeyboard(m, 1)}
+            runningCount={
+              (runtimes[m.id] ?? EMPTY_RUNTIME).sessions.filter((s) => s.activeRunId).length
+            }
+            online={(runtimes[m.id] ?? EMPTY_RUNTIME).online}
+          />
+        </div>
       ))}
 
       <button
@@ -77,12 +157,16 @@ function MachineAvatar({
   online,
   runningCount,
   onClick,
+  onMoveUp,
+  onMoveDown,
 }: {
   machine: MachineProfile;
   active: boolean;
   online: boolean | null;
   runningCount: number;
   onClick: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
 }) {
   const removeMachine = useStore((s) => s.removeMachine);
   const [menu, setMenu] = useState(false);
@@ -93,9 +177,21 @@ function MachineAvatar({
   return (
     <div className="relative">
       <button
-        title={`${machine.name}${online === false ? '（离线）' : ''} — 右键管理`}
+        title={`${machine.name}${online === false ? '（离线）' : ''} — 拖动排序，右键管理`}
         aria-label={`${machine.name}${online === false ? '，离线' : online ? '，在线' : '，检测中'}`}
+        aria-describedby="machine-reorder-help"
         onClick={onClick}
+        onKeyDown={(event) => {
+          if (!event.altKey) return;
+          if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            onMoveUp();
+          }
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            onMoveDown();
+          }
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();

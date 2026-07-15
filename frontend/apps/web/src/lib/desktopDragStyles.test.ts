@@ -20,5 +20,6 @@ describe('macOS desktop drag regions', () => {
     expect(noDragRule).toMatch(/\.desktop-mac \.app-drag form \*/);
     expect(noDragRule).toMatch(/\.desktop-mac \.app-drag a \*/);
     expect(noDragRule).toMatch(/\.desktop-mac \.app-drag \[role=['"]button['"]\] \*/);
+    expect(noDragRule).toMatch(/\.desktop-mac \.app-drag \[draggable=['"]true['"]\] \*/);
   });
 });

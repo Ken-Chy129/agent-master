@@ -14,6 +14,8 @@ import {
   type WorkspaceListing,
 } from '@agent-master/core';
 import { create } from 'zustand';
+import { reorderMachines, type DropPlacement } from './lib/machineOrder.js';
+import type { ModelCatalogStatus } from './lib/modelControls.js';
 import { getBridge, loadSeenSeq, machineStore, saveSeenSeq } from './storage.js';
 
 /** Coarse SSE connection status for the currently-open session. */
@@ -121,6 +123,8 @@ interface StoreState {
   seenSeq: Record<string, number>;
   /** Selectable models per machine id (fetched lazily). */
   modelsByMachine: Record<string, ModelInfo[]>;
+  /** Distinguishes a supported model catalog from an older/unreachable daemon. */
+  modelCatalogStatusByMachine: Record<string, ModelCatalogStatus>;
 
   view: View;
   /** The machine whose workspace is open (view === 'machine'). */
@@ -147,6 +151,7 @@ interface StoreState {
   init: () => Promise<void>;
   addMachine: (input: AddMachineInput) => Promise<void>;
   removeMachine: (id: string) => Promise<void>;
+  reorderMachine: (movedId: string, targetId: string, placement: DropPlacement) => Promise<void>;
 
   // navigation
   openOverview: () => void;
@@ -197,6 +202,7 @@ export const useStore = create<StoreState>((set, get) => {
     runtimes: {},
     seenSeq: {},
     modelsByMachine: {},
+    modelCatalogStatusByMachine: {},
     view: 'overview',
     activeMachineId: null,
     sessionColumnCollapsed: loadColumnCollapsed(),
@@ -279,6 +285,14 @@ export const useStore = create<StoreState>((set, get) => {
       }
     },
 
+    reorderMachine: async (movedId, targetId, placement) => {
+      const machines = reorderMachines(get().machines, movedId, targetId, placement);
+      if (machines === get().machines) return;
+
+      set({ machines });
+      await machineStore().save({ machines, activeId: get().activeMachineId });
+    },
+
     openOverview: () => {
       get().closeSession();
       set({ view: 'overview', activeMachineId: null, error: null });
@@ -327,16 +341,34 @@ export const useStore = create<StoreState>((set, get) => {
     },
 
     loadModels: async (machineId) => {
-      if (get().modelsByMachine[machineId]) return; // cached for the session
+      const status = get().modelCatalogStatusByMachine[machineId];
+      if (status === 'loading' || status === 'ready') return;
       const api = apiFor(machineId);
       if (!api) return;
+      set((state) => ({
+        modelCatalogStatusByMachine: {
+          ...state.modelCatalogStatusByMachine,
+          [machineId]: 'loading',
+        },
+      }));
       try {
         const res = await api.listModels();
         set((state) => ({
           modelsByMachine: { ...state.modelsByMachine, [machineId]: res.models },
+          modelCatalogStatusByMachine: {
+            ...state.modelCatalogStatusByMachine,
+            [machineId]: res.models.length > 0 ? 'ready' : 'unavailable',
+          },
         }));
       } catch {
-        // Non-fatal: the composer falls back to a plain default-model send.
+        // Older daemons do not expose /api/models and ignore per-message model
+        // fields. Mark the picker unavailable instead of offering fake choices.
+        set((state) => ({
+          modelCatalogStatusByMachine: {
+            ...state.modelCatalogStatusByMachine,
+            [machineId]: 'unavailable',
+          },
+        }));
       }
     },
 
