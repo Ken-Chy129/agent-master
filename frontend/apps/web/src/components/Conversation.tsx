@@ -181,13 +181,7 @@ export function Conversation() {
           </button>
         )}
         <ConversationTitle title={currentSessionMeta?.title} />
-        <div className="ml-auto flex flex-none items-center gap-2">
-          {currentSessionMeta?.model && (
-            <span className="rounded-md border border-border bg-raised/65 px-2 py-1 font-mono text-[9.5px] text-ink-muted">
-              {currentSessionMeta.model}
-              {currentSessionMeta.effort ? ` · ${currentSessionMeta.effort}` : ''}
-            </span>
-          )}
+        <div className="ml-auto flex-none">
           <RunIndicator active={runActive} status={streamStatus} />
         </div>
       </header>
