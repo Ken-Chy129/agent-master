@@ -44,6 +44,17 @@ type Config struct {
 	// reverse-proxy or Tailscale address) used for pairing. Empty = derive from
 	// local interfaces.
 	PublicURL string `json:"public_url,omitempty"`
+	// ShellEnvKeys records the ANTHROPIC_*/CLAUDE_* variable NAMES that the last
+	// successful login-shell probe produced — names only, never values, so no
+	// secret is persisted here. It is what lets the daemon tell "this machine
+	// relies on a shell-exported credential that is now missing" (block runs
+	// rather than silently use a different account) from "this machine has no
+	// such credential and legitimately uses claude's own OAuth login".
+	ShellEnvKeys []string `json:"shell_env_keys,omitempty"`
+	// ShellEnvOptional disables that guard: runs proceed even when a previously
+	// seen credential variable can no longer be read. Escape hatch for a user
+	// who deliberately wants claude's own credential lookup to take over.
+	ShellEnvOptional bool `json:"shell_env_optional,omitempty"`
 }
 
 // Dir returns the config directory (~/.agent-master).

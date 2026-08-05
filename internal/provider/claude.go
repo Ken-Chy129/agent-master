@@ -126,7 +126,9 @@ func (c *Claude) Run(ctx context.Context, o RunOptions, onEvent func(StreamEvent
 		if msg == "" {
 			msg = waitErr.Error()
 		}
-		return res, fmt.Errorf("claude exited: %s", msg)
+		// Prefix is user-facing (it surfaces in the client as the run's error); the
+		// appended text is claude's own stderr, left verbatim.
+		return res, fmt.Errorf("claude 异常退出：%s", msg)
 	}
 	if res.NativeSessionID == "" {
 		return res, errors.New("claude stream ended without a session id")

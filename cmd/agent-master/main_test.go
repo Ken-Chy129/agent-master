@@ -15,10 +15,10 @@ func TestWriteConnectInfoIncludesEmbeddedWebURL(t *testing.T) {
 	writeConnectInfo(&out, cfg)
 
 	text := out.String()
-	if !strings.Contains(text, "Web UI  http://127.0.0.1:18888") {
+	if !strings.Contains(text, "Web 界面  http://127.0.0.1:18888") {
 		t.Fatalf("missing Web UI URL:\n%s", text)
 	}
-	if !strings.Contains(text, "Token   test-token") {
+	if !strings.Contains(text, "令牌    test-token") {
 		t.Fatalf("missing pairing token:\n%s", text)
 	}
 }

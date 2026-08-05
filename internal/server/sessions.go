@@ -175,6 +175,10 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err)
 	case errors.Is(err, session.ErrBusy):
 		writeErr(w, http.StatusConflict, err)
+	case errors.Is(err, session.ErrShellEnv):
+		// 503, not 500: the daemon is healthy but temporarily unable to run
+		// claude with the right credentials, and it is retrying on its own.
+		writeErr(w, http.StatusServiceUnavailable, err)
 	case err != nil:
 		writeErr(w, http.StatusInternalServerError, err)
 	default:

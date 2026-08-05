@@ -158,6 +158,9 @@ const (
 type credential struct {
 	token string
 	kind  credKind
+	// source names where the credential came from (an env var name, or a store).
+	// Safe to log and to serve to clients — unlike token.
+	source string
 }
 
 // claudeCredential locates the Claude Code credential the same way the CLI does:
@@ -183,20 +186,24 @@ func claudeCredential() credential {
 	}
 	for _, e := range envs {
 		if v := strings.TrimSpace(os.Getenv(e.name)); v != "" {
-			return credential{token: v, kind: e.kind}
+			return credential{token: v, kind: e.kind, source: e.name}
 		}
 	}
 	// File and Keychain both hold the claude.ai OAuth access token.
 	if tok := tokenFromCredentialsFile(); tok != "" {
-		return credential{token: tok, kind: credOAuth}
+		return credential{token: tok, kind: credOAuth, source: "~/.claude/.credentials.json"}
 	}
 	if runtime.GOOS == "darwin" {
-		if tok := tokenFromMacKeychain(); tok != "" {
-			return credential{token: tok, kind: credOAuth}
+		if tok := keychainToken(); tok != "" {
+			return credential{token: tok, kind: credOAuth, source: "macOS Keychain"}
 		}
 	}
 	return credential{}
 }
+
+// keychainToken is indirected so tests can exercise the "no credential anywhere"
+// path on a developer machine that does have a real Keychain login.
+var keychainToken = tokenFromMacKeychain
 
 // oauthCreds is the shape of both the credentials file and the Keychain item.
 type oauthCreds struct {

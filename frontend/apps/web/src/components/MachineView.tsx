@@ -133,7 +133,9 @@ function SessionColumn({
   }, [runtime.sessions, query, groupMode]);
 
   if (!machine) return null;
-  const claudeAvailable = runtime.info?.providers?.claude?.available;
+  // One badge for every reason a session cannot run, not just a missing CLI:
+  // readiness already folds in credentials and a refused shell environment.
+  const unusable = runtime.online === true && !runtime.readiness.ready;
 
   return (
     <aside className="session-column flex flex-none flex-col border-r border-border bg-surface">
@@ -144,17 +146,27 @@ function SessionColumn({
             className={`h-1.5 w-1.5 flex-none rounded-full ${
               runtime.online === null
                 ? 'bg-ink-faint'
-                : runtime.online
-                  ? 'bg-success'
-                  : 'bg-danger'
+                : runtime.online === false
+                  ? 'bg-danger'
+                  : runtime.readiness.ready
+                    ? 'bg-success'
+                    : 'bg-warn'
             }`}
-            title={runtime.online === false ? '离线' : runtime.online ? '在线' : '检测中'}
+            title={
+              runtime.online === null
+                ? '检测中'
+                : runtime.online === false
+                  ? '离线'
+                  : runtime.readiness.ready
+                    ? '在线'
+                    : `在线，但无法执行会话：${runtime.readiness.reason}`
+            }
           />
-          {claudeAvailable === false && (
+          {unusable && (
             <span
-              className="flex text-danger"
-              title="该机器上找不到 Claude CLI"
-              aria-label="Claude CLI 不可用"
+              className={`flex ${runtime.readiness.refusing ? 'text-danger' : 'text-warn'}`}
+              title={`无法执行会话：${runtime.readiness.reason}。在该机器上执行 agent-master doctor 查看修复方式`}
+              aria-label={`无法执行会话：${runtime.readiness.reason}`}
             >
               <IconAlert size={13} />
             </span>

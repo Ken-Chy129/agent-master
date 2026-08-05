@@ -139,6 +139,7 @@ export function Rail({ onAddMachine }: { onAddMachine: () => void }) {
               onMoveDown={() => moveWithKeyboard(m, 1)}
               activity={machineActivityCounts(runtime.sessions, seenSeq)}
               online={runtime.online}
+              unusableReason={runtime.online === true ? runtime.readiness.reason : null}
             />
           </div>
         );
@@ -162,6 +163,7 @@ function MachineAvatar({
   machine,
   active,
   online,
+  unusableReason,
   activity,
   onClick,
   onMoveUp,
@@ -170,6 +172,8 @@ function MachineAvatar({
   machine: MachineProfile;
   active: boolean;
   online: boolean | null;
+  /** Reachable but unable to run a session; null when it can. */
+  unusableReason: string | null;
   activity: MachineActivityCounts;
   onClick: () => void;
   onMoveUp: () => void;
@@ -180,14 +184,29 @@ function MachineAvatar({
   const [confirmRemove, setConfirmRemove] = useState(false);
 
   const dotColor =
-    online === null ? 'bg-ink-faint' : online ? 'bg-success' : 'bg-ink-faint';
+    online === null
+      ? 'bg-ink-faint'
+      : online === false
+        ? 'bg-ink-faint'
+        : unusableReason
+          ? 'bg-warn'
+          : 'bg-success';
   const badge = machineBadge(activity);
-  const connectionLabel = online === false ? '，离线' : online ? '，在线' : '，检测中';
+  const connectionLabel =
+    online === false
+      ? '，离线'
+      : online
+        ? unusableReason
+          ? `，在线但无法执行会话：${unusableReason}`
+          : '，在线'
+        : '，检测中';
   const activityLabel = badge ? `，${badge.label}` : '';
   return (
     <div className="relative">
       <button
-        title={`${machine.name}${online === false ? '（离线）' : ''} — 拖动排序，右键管理`}
+        title={`${machine.name}${
+          online === false ? '（离线）' : unusableReason ? `（${unusableReason}）` : ''
+        } — 拖动排序，右键管理`}
         aria-label={`${machine.name}${connectionLabel}${activityLabel}`}
         aria-describedby="machine-reorder-help"
         onClick={onClick}

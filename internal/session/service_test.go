@@ -2,12 +2,15 @@ package session
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/Ken-Chy129/agent-master/internal/provider"
 	"github.com/Ken-Chy129/agent-master/internal/render"
+	"github.com/Ken-Chy129/agent-master/internal/shellenv"
 	"github.com/Ken-Chy129/agent-master/internal/store"
 )
 
@@ -80,11 +83,27 @@ func TestRunProviderRecoversPanicAndFinalizes(t *testing.T) {
 		t.Fatalf("lastRunState = %q, want %q", rs.LastRunState, runFailed)
 	}
 	// The active entry must be released so the session can accept a new run.
-	svc.mu.Lock()
-	_, busy := svc.active[sess.ID]
-	svc.mu.Unlock()
-	if busy {
-		t.Fatal("active run entry not released after panic")
+	// Poll rather than assert immediately: the finalizer commits run_finished —
+	// which is all waitIdle observes — then writes recent-session metadata, and
+	// only then releases the entry, so a bare check here races that gap.
+	waitActiveReleased(t, svc, sess.ID)
+}
+
+// waitActiveReleased polls until the session has no in-flight run registered.
+func waitActiveReleased(t *testing.T, s *Service, sessionID string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		_, busy := s.active[sessionID]
+		s.mu.Unlock()
+		if !busy {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("active run entry not released after panic")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -189,5 +208,41 @@ func TestReconcileStuckRuns(t *testing.T) {
 	}
 	if recents[0].LastPreview != "deploy" {
 		t.Fatalf("lastPreview = %q, want %q", recents[0].LastPreview, "deploy")
+	}
+}
+
+// A send must be refused — not misrouted — while the daemon cannot resolve the
+// credentials this machine is known to export. Running anyway would spawn claude
+// against a different account than the user's terminal, which is the silent
+// failure the shellenv gate exists to prevent.
+func TestSendRefusedWhenShellEnvBlocked(t *testing.T) {
+	svc, sess := newTestService(t, &fakeProvider{
+		run: func(context.Context, provider.RunOptions, func(provider.StreamEvent)) (provider.RunResult, error) {
+			t.Error("provider ran despite missing credentials")
+			return provider.RunResult{NativeSessionID: "s1"}, nil
+		},
+	})
+
+	// Force the blocked state: a probe that cannot run, plus a history of
+	// exporting a credential that is absent from this process.
+	prev, had := os.LookupEnv("ANTHROPIC_API_KEY")
+	os.Unsetenv("ANTHROPIC_API_KEY")
+	t.Setenv("SHELL", filepath.Join(t.TempDir(), "no-such-shell"))
+	shellenv.Resolve([]string{"ANTHROPIC_API_KEY"})
+	t.Cleanup(func() {
+		if had {
+			os.Setenv("ANTHROPIC_API_KEY", prev)
+		}
+		shellenv.Resolve(nil) // clears MissingAuth, unblocking other tests
+	})
+
+	if _, err := svc.Send(sess.ID, SendInput{Message: "hi"}); !errors.Is(err, ErrShellEnv) {
+		t.Fatalf("Send error = %v, want ErrShellEnv", err)
+	}
+
+	// The refusal must leave no trace in the ledger: a rejected turn is not a
+	// failed run, and the session should still read as idle.
+	if rs := renderOf(t, svc, sess.ID); rs.TailActivity != "idle" {
+		t.Errorf("tailActivity = %q, want idle after a refused send", rs.TailActivity)
 	}
 }

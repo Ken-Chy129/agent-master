@@ -3,10 +3,12 @@ import {
   ApiError,
   SseClient,
   defaultMachineName,
+  machineReadiness,
   type CreateSessionRequest,
   type InfoResponse,
   type MachineProfile,
   type ModelInfo,
+  type Readiness,
   type RecentSession,
   type RenderState,
   type SendImage,
@@ -31,15 +33,28 @@ const POLL_INTERVAL_MS = 15_000;
 
 /** Live per-machine data, fetched by polling. Never cleared on view switches. */
 export interface MachineRuntime {
-  /** null = not probed yet. */
+  /**
+   * Whether the machine answered at all. null = not probed yet.
+   *
+   * This is reachability, not usability — a daemon can answer every request and
+   * still fail every session. Read `readiness` for the latter.
+   */
   online: boolean | null;
+  /**
+   * Whether a session can be expected to succeed, derived from the daemon's own
+   * report. Only meaningful while `online` is true.
+   */
+  readiness: Readiness;
   info: InfoResponse | null;
   sessions: RecentSession[];
   sessionsLoading: boolean;
 }
 
+const READY_UNKNOWN: Readiness = { ready: true, reason: null, refusing: false };
+
 const EMPTY_RUNTIME: MachineRuntime = {
   online: null,
+  readiness: READY_UNKNOWN,
   info: null,
   sessions: [],
   sessionsLoading: false,
@@ -314,6 +329,9 @@ export const useStore = create<StoreState>((set, get) => {
         const res = await api.listSessions(100, 0);
         patchRuntime(id, {
           online: true,
+          // Reachable is not the same as usable: ask the daemon whether a session
+          // could actually run, so the UI can say so before the user tries.
+          readiness: machineReadiness(info),
           info,
           sessions: res.sessions,
           sessionsLoading: false,
@@ -321,7 +339,7 @@ export const useStore = create<StoreState>((set, get) => {
       } catch {
         // Machine unreachable (or token rejected): keep the last session list
         // so the UI can still show recent context, just flag it offline.
-        patchRuntime(id, { online: false, sessionsLoading: false });
+        patchRuntime(id, { online: false, readiness: READY_UNKNOWN, sessionsLoading: false });
       }
     },
 

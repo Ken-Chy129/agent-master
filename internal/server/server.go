@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/Ken-Chy129/agent-master/internal/config"
+	"github.com/Ken-Chy129/agent-master/internal/provider"
 	"github.com/Ken-Chy129/agent-master/internal/session"
+	"github.com/Ken-Chy129/agent-master/internal/shellenv"
 	"github.com/Ken-Chy129/agent-master/internal/store"
 	"github.com/Ken-Chy129/agent-master/internal/version"
 	"github.com/Ken-Chy129/agent-master/internal/webui"
@@ -90,11 +92,33 @@ func (s *Server) ListenAndServe() error {
 // Shutdown gracefully stops the server.
 func (s *Server) Shutdown(ctx context.Context) error { return s.http.Shutdown(ctx) }
 
+// handleHealth answers liveness *and* readiness, which are different questions.
+// "status":"ok" means the process is serving; "ready" means a run can actually be
+// expected to succeed. Conflating them is what let a client show a green dot for
+// a month while every message failed — the dot was driven by "the request
+// returned", which was always true.
+//
+// The endpoint is unauthenticated, so "degraded" carries coarse machine-readable
+// codes only. Anything that would identify variable names, shells or paths stays
+// behind the token in /api/info.
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	var degraded []string
+	if _, blocked := shellenv.Blocked(); blocked {
+		degraded = append(degraded, "shell_env")
+	}
+	if !provider.ClaudeAuth().OK {
+		degraded = append(degraded, "credentials")
+	}
+
+	body := map[string]any{
 		"status":  "ok",
 		"version": version.Version,
-	})
+		"ready":   len(degraded) == 0,
+	}
+	if len(degraded) > 0 {
+		body["degraded"] = degraded
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 // handleInfo reports machine identity and provider availability so a client's
@@ -107,14 +131,56 @@ func (s *Server) handleInfo(w http.ResponseWriter, _ *http.Request) {
 		claudePath, _ = exec.LookPath("claude")
 	}
 
+	// Surface shell-env resolution so a client can warn before the user sends
+	// anything, instead of leaving the only trace in daemon.log. Names only —
+	// Status never carries values.
+	env := shellenv.Current()
+	reason, blocked := shellenv.Blocked()
+	shellEnv := map[string]any{
+		"ok":       env.OK,
+		"shell":    env.Shell,
+		"imported": env.Imported,
+		"retrying": env.Retrying,
+		"blocked":  blocked,
+	}
+	if len(env.MissingAuth) > 0 {
+		shellEnv["missing"] = env.MissingAuth
+	}
+	if reason != "" {
+		shellEnv["reason"] = reason
+	} else if env.LastError != "" {
+		shellEnv["reason"] = env.LastError
+	}
+
+	// Whether the CLI has a credential at all — the check that turns a per-message
+	// "Not logged in · Please run /login" into something a client can show up front.
+	auth := provider.ClaudeAuth()
+	authInfo := map[string]any{"ok": auth.OK}
+	if auth.Source != "" {
+		authInfo["source"] = auth.Source
+	}
+	if auth.BaseURL != "" {
+		authInfo["baseUrl"] = auth.BaseURL
+	}
+	if auth.Hint != "" {
+		authInfo["hint"] = auth.Hint
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"name":    hostname,
 		"version": version.Version,
 		"providers": map[string]any{
 			"claude": map[string]any{
-				"available": claudePath != "",
-				"path":      claudePath,
+				// Runs are refused while blocked, so a client that only reads
+				// this flag must not show claude as ready. Missing credentials
+				// stay out of it: that is a warning, not a refusal (see
+				// provider.AuthStatus), so runs still proceed.
+				"available":     claudePath != "" && !blocked,
+				"path":          claudePath,
+				"authenticated": auth.OK,
 			},
 		},
+		"shell_env": shellEnv,
+		"auth":      authInfo,
 	})
 }

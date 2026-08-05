@@ -17,7 +17,7 @@ func cmdPair(_ []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Pair a client with this machine:")
+	fmt.Println("将客户端与这台机器配对：")
 	fmt.Println()
 	printPairBody(cfg, true)
 	return nil
@@ -32,24 +32,24 @@ func printPairBody(cfg *config.Config, withQR bool) {
 		url.QueryEscape(urls[0]), url.QueryEscape(cfg.Token),
 	)
 
-	fmt.Println("  Base URL(s):")
+	fmt.Println("  可用地址：")
 	for _, u := range urls {
 		fmt.Printf("    %s\n", u)
 	}
-	fmt.Printf("  Token: %s\n", cfg.Token)
+	fmt.Printf("  令牌：%s\n", cfg.Token)
 	fmt.Println()
-	fmt.Println("  Deep link (desktop app / scan on phone):")
+	fmt.Println("  深链接（桌面端打开 / 手机扫码）：")
 	fmt.Printf("    %s\n", deeplink)
 	fmt.Println()
 
 	if withQR {
 		qrterminal.GenerateHalfBlock(deeplink, qrterminal.L, stdoutWriter{})
 		fmt.Println()
-		fmt.Println("Tip: for access from anywhere without exposing a public port,")
-		fmt.Println("put this machine and your client on the same Tailscale tailnet")
-		fmt.Println("and use the tailnet URL (set it as public_url in config).")
+		fmt.Println("提示：若需在任意网络下访问且不暴露公网端口，")
+		fmt.Println("请将本机与客户端接入同一 Tailscale 网络，")
+		fmt.Println("并使用该网络地址（在配置中设为 public_url）。")
 	} else {
-		fmt.Println("  Scan a QR to pair a phone:  agent-master pair")
+		fmt.Println("  扫码配对手机：agent-master pair")
 	}
 }
 

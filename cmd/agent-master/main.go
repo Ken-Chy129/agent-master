@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -34,7 +35,11 @@ import (
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		// doctor has already printed a full report; adding "error:" on top would
+		// only bury it. It just needs the non-zero exit status.
+		if !errors.Is(err, errSilent) {
+			fmt.Fprintln(os.Stderr, "error:", err)
+		}
 		os.Exit(1)
 	}
 }
@@ -54,6 +59,8 @@ func run(args []string) error {
 		return cmdRestart(args[1:])
 	case "status":
 		return cmdStatus(args[1:])
+	case "doctor":
+		return cmdDoctor(args[1:])
 	case "uninstall":
 		return service.Uninstall()
 	// Connecting a client.
@@ -79,7 +86,7 @@ func run(args []string) error {
 		return cmdService(args[1:])
 	default:
 		usage()
-		return fmt.Errorf("unknown command: %s", args[0])
+		return fmt.Errorf("未知命令：%s", args[0])
 	}
 }
 
@@ -128,12 +135,21 @@ func cmdServe(args []string) error {
 
 	// Import the user's interactive login-shell env (ANTHROPIC_*/CLAUDE_*) so the
 	// claude CLI we spawn uses the same auth/endpoint as the user's terminal.
-	// launchd/systemd start us without sourcing ~/.zshrc; non-fatal on failure.
-	if imported, err := shellenv.Import(); err != nil {
-		slog.Warn("shellenv import failed; claude will use its own credential lookup", "err", err)
-	} else if len(imported) > 0 {
-		slog.Info("imported env from login shell", "keys", strings.Join(imported, ","))
-	}
+	// launchd/systemd start us without sourcing ~/.zshrc.
+	//
+	// Failing here must not exit non-zero: the service definitions use
+	// KeepAlive/Restart=on-failure, so that would crash-loop the daemon and take
+	// the diagnostics down with it. Instead keep serving, retry in the
+	// background, and let Send refuse runs while the credentials a previous boot
+	// resolved are missing — see the shellenv package docs.
+	shellenv.SetOptional(cfg.ShellEnvOptional)
+	logShellEnv(shellenv.Resolve(cfg.ShellEnvKeys))
+	rememberShellEnvKeys(cfg, shellenv.Current())
+	shellenv.StartHealing(cfg.ShellEnvKeys, func([]string) {
+		st := shellenv.Current()
+		logShellEnv(st)
+		rememberShellEnvKeys(cfg, st)
+	})
 
 	dbPath, err := config.DBPath()
 	if err != nil {
@@ -146,6 +162,20 @@ func cmdServe(args []string) error {
 	defer st.Close()
 
 	claudeBin := resolveClaudeBin(cfg)
+
+	// Report up front whether the CLI has anything to authenticate with. This is
+	// the same lookup claude performs, so "no credentials" is knowable now rather
+	// than as a per-message `Not logged in · Please run /login` that says nothing
+	// about the daemon's environment. A warning, not a gate: the lookup can't
+	// cover every valid setup (exotic gateways), so refusing runs on it would
+	// trade a confusing error for a wrong outage.
+	if auth := provider.ClaudeAuth(); !auth.OK {
+		slog.Warn("claude has no credentials on this machine; runs will fail",
+			"baseUrl", auth.BaseURL, "hint", auth.Hint)
+	} else {
+		slog.Info("claude credentials resolved", "source", auth.Source, "baseUrl", auth.BaseURL)
+	}
+
 	svc := session.NewService(st, provider.NewClaude(claudeBin))
 	// Heal runs orphaned by a previous process's abrupt exit (crash/restart mid-run)
 	// before serving, so sessions don't show a permanently-stuck "running" state.
@@ -181,6 +211,51 @@ func cmdServe(args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		return srv.Shutdown(ctx)
+	}
+}
+
+// logShellEnv reports a shell-env resolution at a severity matching its actual
+// consequence. The distinction that matters is not "did the probe work" but
+// "would claude now use different credentials than the user's terminal": the
+// first is routine on a machine with no exported keys, the second silently
+// redirects every request and is what went unnoticed for two weeks.
+func logShellEnv(st shellenv.Status) {
+	switch {
+	case len(st.MissingAuth) > 0:
+		slog.Error("login-shell credentials are missing; claude runs are blocked to avoid silently using a different account",
+			"missing", strings.Join(st.MissingAuth, ","),
+			"probe_ok", st.OK, "attempts", st.Attempts, "err", st.LastError,
+			"hint", "fix your shell rc file, or set shell_env_optional:true in ~/.agent-master/config.json to allow claude's own credential lookup")
+	case !st.OK:
+		slog.Warn("login-shell env probe failed; claude will use its own credential lookup",
+			"shell", st.Shell, "attempts", st.Attempts, "err", st.LastError)
+	case len(st.Imported) > 0:
+		slog.Info("imported env from login shell", "shell", st.Shell, "keys", strings.Join(st.Imported, ","))
+	default:
+		// A probe that succeeds and finds nothing used to log nothing at all,
+		// which is how probing the wrong shell stayed invisible: sh exits 0 and
+		// skips the user's rc files, so it looks identical to a machine that
+		// genuinely exports no credentials. Always say which shell was asked.
+		slog.Warn("login shell exported no ANTHROPIC_*/CLAUDE_* variables; claude will use its own credential lookup",
+			"shell", st.Shell)
+	}
+}
+
+// rememberShellEnvKeys persists the variable NAMES a successful probe produced,
+// so a later boot can tell a missing credential from a machine that never had
+// one. Values are never written — only names.
+//
+// The baseline is deliberately not updated while a credential is missing: doing
+// so would disarm the guard on the very boot that detected the problem, which is
+// exactly the silent-divergence failure this is meant to catch. A user who
+// really did remove the variable clears the warning with shell_env_optional.
+func rememberShellEnvKeys(cfg *config.Config, st shellenv.Status) {
+	if !st.OK || len(st.MissingAuth) > 0 || slices.Equal(cfg.ShellEnvKeys, st.Imported) {
+		return
+	}
+	cfg.ShellEnvKeys = st.Imported
+	if err := cfg.Save(); err != nil {
+		slog.Warn("persist shell env keys", "err", err)
 	}
 }
 
@@ -261,7 +336,7 @@ func cmdStart(_ []string) error {
 	// means `start` always reloads the on-disk binary — otherwise a fresh build
 	// would silently keep running the stale daemon.
 	if ver, ok := probeHealth(cfg.Port); ok && ver == version.Version && !isDevBuild() {
-		fmt.Println("✓ agent-master is already running.")
+		fmt.Println("✓ agent-master 已在运行")
 		printConnectInfo(cfg)
 		return nil
 	}
@@ -269,7 +344,15 @@ func cmdStart(_ []string) error {
 	if err := service.Install(); err != nil {
 		return err
 	}
-	fmt.Println("✓ agent-master is running.")
+	// Installing only means the service manager accepted the job — launchd
+	// bootstraps happily and a daemon that exits a second later leaves nothing
+	// but a log line. Wait for it to actually answer before claiming success, so
+	// a failed start is a visible error instead of a ✓ the user trusts.
+	if _, ok := waitHealthy(cfg.Port, startupGrace); !ok {
+		return startupFailure(cfg.Port)
+	}
+	fmt.Println("✓ agent-master 正在运行")
+	warnIfDegraded(cfg)
 	printConnectInfo(cfg)
 	return nil
 }
@@ -288,28 +371,37 @@ func printConnectInfo(cfg *config.Config) {
 
 func writeConnectInfo(w io.Writer, cfg *config.Config) {
 	fmt.Fprintln(w)
-	fmt.Fprintf(w, "Web UI  http://127.0.0.1:%d\n", cfg.Port)
+	fmt.Fprintf(w, "Web 界面  http://127.0.0.1:%d\n", cfg.Port)
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Add this machine in the desktop app or another browser:")
-	fmt.Fprintf(w, "  URL     %s\n", candidateBaseURLs(cfg)[0])
-	fmt.Fprintf(w, "  Token   %s\n", cfg.Token)
+	fmt.Fprintln(w, "在桌面端或其他浏览器中添加这台机器：")
+	fmt.Fprintf(w, "  地址    %s\n", candidateBaseURLs(cfg)[0])
+	fmt.Fprintf(w, "  令牌    %s\n", cfg.Token)
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "More addresses / QR to pair a phone:  agent-master pair")
+	fmt.Fprintln(w, "更多地址与配对二维码：agent-master pair")
 }
 
 func cmdStop(_ []string) error {
 	if err := service.Stop(); err != nil {
 		return err
 	}
-	fmt.Println("✓ agent-master stopped.")
+	fmt.Println("✓ agent-master 已停止")
 	return nil
 }
 
 func cmdRestart(_ []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
 	if err := service.Restart(); err != nil {
 		return err
 	}
-	fmt.Println("✓ agent-master restarted.")
+	// Same false-✓ hazard as start: confirm the new process is serving.
+	if _, ok := waitHealthy(cfg.Port, startupGrace); !ok {
+		return startupFailure(cfg.Port)
+	}
+	fmt.Println("✓ agent-master 已重启")
+	warnIfDegraded(cfg)
 	return nil
 }
 
@@ -325,7 +417,7 @@ func cmdToken(_ []string) error {
 // cmdService keeps the older `service <sub>` form working as an alias.
 func cmdService(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: agent-master service <install|uninstall|status|start|stop|restart>")
+		return errors.New("用法：agent-master service <install|uninstall|status|start|stop|restart>")
 	}
 	switch args[0] {
 	case "install", "start":
@@ -346,44 +438,46 @@ func cmdService(args []string) error {
 // usage is the short, everyday help: the handful of commands most people use,
 // with the rest named on one line and the details behind `help --all`.
 func usage() {
-	fmt.Print(`agent-master — run Claude Code on this machine, manage it from anywhere.
+	fmt.Print(`agent-master —— 在本机运行 Claude Code，从任意设备管理会话。
 
-Usage:
-  agent-master <command>
+用法：
+  agent-master <命令>
 
-  start     Start in the background (and on boot); prints how to connect
-  status    Show whether it's running and how to connect
-  pair      Show URL, token, and a QR to add this machine in a client
-  stop      Stop it
+  start     在后台启动（并随开机自启），输出连接方式
+  status    查看运行状态与连接方式
+  doctor    诊断"看起来已启动但会话失败"的原因
+  pair      输出地址、令牌与配对二维码
+  stop      停止运行
 
-More:  restart · uninstall · token · serve · version   →  agent-master help --all
-Config & data live in ~/.agent-master/  (default port 8888).
+其他命令：restart · uninstall · token · serve · version   →  agent-master help --all
+配置与数据位于 ~/.agent-master/（默认端口 8888）。
 `)
 }
 
 // usageAll is the full grouped reference, including low-frequency and dev
 // commands, shown by `agent-master help --all`.
 func usageAll() {
-	fmt.Print(`agent-master — run Claude Code on this machine, manage it from anywhere.
+	fmt.Print(`agent-master —— 在本机运行 Claude Code，从任意设备管理会话。
 
-Usage:
-  agent-master <command> [flags]
+用法：
+  agent-master <命令> [参数]
 
-Setup:
-  start        Start in the background (also on boot); prints how to connect
-  status       Show whether it's running and how to connect
-  stop         Stop it
-  restart      Restart it
-  uninstall    Stop and remove the background service
+安装与运行：
+  start        在后台启动（并随开机自启），输出连接方式
+  status       查看运行状态与连接方式
+  doctor       检查会话执行所依赖的各项前置条件，并给出修复方式
+  stop         停止运行
+  restart      重启
+  uninstall    停止并移除后台服务
 
-Connect a client:
-  pair         Print this machine's URL, token, and a QR to add it in an app
-  token        Print just the auth token
+连接客户端：
+  pair         输出本机地址、令牌与配对二维码
+  token        仅输出访问令牌
 
-Advanced:
-  serve        Run in the foreground for dev/debug: [--port N] [--host H]
-  version      Print the version
+高级：
+  serve        前台运行，用于开发与调试：[--port N] [--host H]
+  version      输出版本号
 
-Config & data live in ~/.agent-master/  (default port 8888).
+配置与数据位于 ~/.agent-master/（默认端口 8888）。
 `)
 }

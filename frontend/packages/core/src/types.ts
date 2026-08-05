@@ -116,6 +116,14 @@ export interface EventPayloadMap {
 export interface HealthResponse {
   status: string;
   version: string;
+  /**
+   * Whether a session can be expected to succeed. Distinct from `status`, which
+   * only says the process is serving — a daemon can answer every request and
+   * still fail every run. Absent on daemons older than this field.
+   */
+  ready?: boolean;
+  /** Coarse reason codes when `ready` is false, e.g. ["credentials"]. */
+  degraded?: string[];
 }
 
 /**
@@ -126,7 +134,27 @@ export interface HealthResponse {
 export interface InfoResponse {
   name: string;
   version: string;
-  providers: Record<string, { available: boolean; path?: string }>;
+  providers: Record<string, { available: boolean; path?: string; authenticated?: boolean }>;
+  /**
+   * Whether the daemon found a credential for the CLI, and where. Names and
+   * endpoints only, never the secret. Absent on older daemons — which is why
+   * `ok` must be read as a tri-state: undefined means "cannot tell", not "no".
+   */
+  auth?: { ok?: boolean; source?: string; baseUrl?: string; hint?: string };
+  /**
+   * How the daemon resolved the user's login-shell environment. `blocked` means
+   * sends are actively refused because credentials it used to read are gone.
+   * Absent on older daemons.
+   */
+  shell_env?: {
+    ok?: boolean;
+    shell?: string;
+    imported?: string[] | null;
+    blocked?: boolean;
+    missing?: string[];
+    retrying?: boolean;
+    reason?: string;
+  };
 }
 
 export interface ListSessionsResponse {

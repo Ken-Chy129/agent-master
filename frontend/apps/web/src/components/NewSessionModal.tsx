@@ -26,8 +26,14 @@ export function NewSessionModal({
 
   const [selectedMachine, setSelectedMachine] = useState<string>(() => {
     if (machineId) return machineId;
-    const online = machines.find((m) => (runtimes[m.id] ?? EMPTY_RUNTIME).online);
-    return (online ?? machines[0])?.id ?? '';
+    // Prefer a machine that can actually run a session over one that merely
+    // answers, so the default selection is not a machine that will fail.
+    const usable = machines.find((m) => {
+      const rt = runtimes[m.id] ?? EMPTY_RUNTIME;
+      return rt.online && rt.readiness.ready;
+    });
+    const reachable = machines.find((m) => (runtimes[m.id] ?? EMPTY_RUNTIME).online);
+    return (usable ?? reachable ?? machines[0])?.id ?? '';
   });
   const [listing, setListing] = useState<WorkspaceListing | null>(null);
   const [loading, setLoading] = useState(true);
@@ -100,7 +106,11 @@ export function NewSessionModal({
                 return (
                   <option key={m.id} value={m.id}>
                     {m.name}
-                    {rt.online === false ? '（离线）' : ''}
+                    {rt.online === false
+                      ? '（离线）'
+                      : rt.online && !rt.readiness.ready
+                        ? '（不可用）'
+                        : ''}
                   </option>
                 );
               })}

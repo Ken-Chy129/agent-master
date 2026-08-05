@@ -20,6 +20,7 @@ import (
 
 	"github.com/Ken-Chy129/agent-master/internal/config"
 	"github.com/Ken-Chy129/agent-master/internal/provider"
+	"github.com/Ken-Chy129/agent-master/internal/shellenv"
 	"github.com/Ken-Chy129/agent-master/internal/store"
 )
 
@@ -36,6 +37,12 @@ var ErrNotFound = store.ErrNotFound
 
 // ErrBusy is returned when a session already has an active run.
 var ErrBusy = errors.New("session has an active run")
+
+// ErrShellEnv is returned when the daemon could not resolve credentials this
+// machine is known to export from the user's login shell, so spawning claude
+// would silently use a different account. Retried automatically in the
+// background; the run is refused rather than misrouted in the meantime.
+var ErrShellEnv = errors.New("登录 shell 凭证不可用")
 
 // Service is the session orchestrator.
 type Service struct {
@@ -161,6 +168,16 @@ type SendInput struct {
 // Send starts a run for a user message. It returns the run id immediately; the
 // provider runs asynchronously and streams events into the ledger.
 func (s *Service) Send(sessionID string, in SendInput) (string, error) {
+	// Refuse the turn while the daemon could not read the credentials its own
+	// config says this machine exports. Letting it through would spawn claude
+	// against a different account and endpoint than the user's terminal — which
+	// either bills the wrong place silently, or dies with an opaque "OAuth session
+	// expired" that points nowhere near the real cause. Failing here puts the
+	// diagnosis in front of the user at the moment they act.
+	if reason, blocked := shellenv.Blocked(); blocked {
+		return "", fmt.Errorf("%w: %s", ErrShellEnv, reason)
+	}
+
 	sess, err := s.store.GetSession(sessionID)
 	if err != nil {
 		return "", err

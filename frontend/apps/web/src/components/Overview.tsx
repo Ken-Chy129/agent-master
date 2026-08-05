@@ -27,17 +27,22 @@ export function Overview() {
   const [showNew, setShowNew] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const { attention, running, doneRecent, onlineCount, offlineNames } = useMemo(() => {
+  const { attention, running, doneRecent, onlineCount, offlineNames, unusableNames } = useMemo(() => {
     const attention: TriagedSession[] = [];
     const running: TriagedSession[] = [];
     const doneRecent: TriagedSession[] = [];
     let onlineCount = 0;
     const offlineNames: string[] = [];
+    // Reachable but unable to run a session. Counted separately from offline:
+    // "online" alone was the signal that stayed green through a month of failures.
+    const unusableNames: string[] = [];
 
     for (const m of machines) {
       const rt = runtimes[m.id] ?? EMPTY_RUNTIME;
-      if (rt.online) onlineCount += 1;
-      else if (rt.online === false) offlineNames.push(m.name);
+      if (rt.online) {
+        onlineCount += 1;
+        if (!rt.readiness.ready) unusableNames.push(m.name);
+      } else if (rt.online === false) offlineNames.push(m.name);
       for (const s of rt.sessions) {
         const status = sessionStatus(s, seenSeq[s.id]);
         if (status === 'running') running.push({ machine: m, session: s });
@@ -52,7 +57,7 @@ export function Overview() {
     attention.sort(byUpdated);
     running.sort(byUpdated);
     doneRecent.sort(byUpdated);
-    return { attention, running, doneRecent, onlineCount, offlineNames };
+    return { attention, running, doneRecent, onlineCount, offlineNames, unusableNames };
   }, [machines, runtimes, seenSeq]);
 
   const refresh = async () => {
@@ -102,6 +107,7 @@ export function Overview() {
         <SignalStrip
           machines={machines.length}
           online={onlineCount}
+          unusable={unusableNames}
           attention={attention.length}
           running={running.length}
           recent={doneRecent.length}
@@ -172,6 +178,7 @@ export function Overview() {
             machines={machines}
             runtimes={runtimes}
             offlineNames={offlineNames}
+            unusableNames={unusableNames}
             onOpen={openMachine}
           />
         </div>
@@ -185,26 +192,37 @@ export function Overview() {
 function SignalStrip({
   machines,
   online,
+  unusable,
   attention,
   running,
   recent,
 }: {
   machines: number;
   online: number;
+  unusable: string[];
   attention: number;
   running: number;
   recent: number;
 }) {
   const stats = [
-    { label: '在线机器', value: `${online}/${machines}`, tone: 'success' },
-    { label: '需要处理', value: attention, tone: attention > 0 ? 'warn' : 'muted' },
-    { label: '正在运行', value: running, tone: running > 0 ? 'accent' : 'muted' },
-    { label: '24h 完成', value: recent, tone: 'muted' },
+    {
+      label: '在线机器',
+      value: `${online}/${machines}`,
+      // Do not claim success while a reachable machine cannot run anything.
+      tone: unusable.length > 0 ? 'warn' : 'success',
+      title:
+        unusable.length > 0
+          ? `${unusable.join('、')} 在线但无法执行会话，在该机器上执行 agent-master doctor 查看原因`
+          : undefined,
+    },
+    { label: '需要处理', value: attention, tone: attention > 0 ? 'warn' : 'muted', title: undefined },
+    { label: '正在运行', value: running, tone: running > 0 ? 'accent' : 'muted', title: undefined },
+    { label: '24h 完成', value: recent, tone: 'muted', title: undefined },
   ];
   return (
     <section aria-label="任务状态摘要" className="overview-signal-strip">
       {stats.map((stat) => (
-        <div key={stat.label} className="overview-signal-segment">
+        <div key={stat.label} className="overview-signal-segment" title={stat.title}>
           <span className={`signal-dot signal-dot-${stat.tone}`} aria-hidden="true" />
           <span className="text-[11px] text-ink-muted">{stat.label}</span>
           <strong className="ml-auto font-mono text-[13px] font-semibold text-ink">{stat.value}</strong>
@@ -324,11 +342,13 @@ function MachinePanel({
   machines,
   runtimes,
   offlineNames,
+  unusableNames,
   onOpen,
 }: {
   machines: MachineProfile[];
   runtimes: ReturnType<typeof useStore.getState>['runtimes'];
   offlineNames: string[];
+  unusableNames: string[];
   onOpen: (id: string) => void;
 }) {
   if (machines.length === 0) return null;
@@ -337,7 +357,11 @@ function MachinePanel({
       <div className="border-b border-border px-4 py-3">
         <h2 className="text-[12.5px] font-semibold">机器信号</h2>
         <p className="mt-0.5 text-[10.5px] text-ink-faint">
-          {offlineNames.length > 0 ? `${offlineNames.length} 台离线` : '所有机器连接正常'}
+          {offlineNames.length > 0
+            ? `${offlineNames.length} 台离线`
+            : unusableNames.length > 0
+              ? `${unusableNames.length} 台在线但无法执行会话`
+              : '所有机器均可执行会话'}
         </p>
       </div>
       <div className="divide-y divide-border">
@@ -354,10 +378,13 @@ function MachinePanel({
                 className={`h-2 w-2 flex-none rounded-full ${
                   runtime.online === null
                     ? 'bg-ink-faint'
-                    : runtime.online
-                      ? 'bg-success'
-                      : 'bg-danger'
+                    : runtime.online === false
+                      ? 'bg-danger'
+                      : runtime.readiness.ready
+                        ? 'bg-success'
+                        : 'bg-warn'
                 }`}
+                title={runtime.readiness.reason ?? undefined}
               />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[12px] font-medium">{machine.name}</span>
@@ -369,8 +396,19 @@ function MachinePanel({
                 <span className="block font-mono text-[11px] font-semibold text-ink">
                   {running > 0 ? `${running} 运行中` : `${runtime.sessions.length} 会话`}
                 </span>
-                <span className="block text-[9.5px] text-ink-faint">
-                  {runtime.online === null ? '检测中' : runtime.online ? '在线' : '离线'}
+                <span
+                  className={`block text-[9.5px] ${
+                    runtime.online && !runtime.readiness.ready ? 'text-warn' : 'text-ink-faint'
+                  }`}
+                  title={runtime.readiness.reason ?? undefined}
+                >
+                  {runtime.online === null
+                    ? '检测中'
+                    : runtime.online === false
+                      ? '离线'
+                      : runtime.readiness.ready
+                        ? '在线'
+                        : '不可用'}
                 </span>
               </span>
             </button>

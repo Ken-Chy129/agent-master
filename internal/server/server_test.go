@@ -68,6 +68,11 @@ func TestRootServesWebClientWithoutChangingAPI(t *testing.T) {
 	if resp.StatusCode != 200 || !strings.Contains(body, `"status":"ok"`) {
 		t.Fatalf("health = %d %q", resp.StatusCode, body)
 	}
+	// Liveness and readiness must stay distinguishable here: a client that colours
+	// its status dot from this endpoint needs "can it run", not just "did it answer".
+	if !strings.Contains(body, `"ready"`) {
+		t.Fatalf("health lost the readiness field: %q", body)
+	}
 
 	resp, _ = do(t, "GET", base+"/api/sessions", "", "")
 	if resp.StatusCode != http.StatusUnauthorized {
