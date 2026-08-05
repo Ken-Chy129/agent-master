@@ -47,7 +47,11 @@ npmRebuild: false
 # not cover the bundle and fails `codesign --verify` — and a quarantined download
 # whose signature fails validation is reported as malware and moved to the Trash,
 # not merely as coming from an unidentified developer. See the hook for details.
-afterPack: scripts/adhoc-sign.cjs
+# The leading ./ matters: a bare relative path is first resolved as a module id,
+# which logs "Cannot find module" before electron-builder falls back to resolving
+# it against this file. It happens to work, but relying on that fallback is
+# fragile and the error reads like a failure.
+afterPack: ./scripts/adhoc-sign.cjs
 
 mac:
   category: public.app-category.developer-tools
