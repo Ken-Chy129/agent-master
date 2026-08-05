@@ -72,7 +72,7 @@ func (c *Claude) Run(ctx context.Context, o RunOptions, onEvent func(StreamEvent
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
-		return RunResult{}, fmt.Errorf("start claude: %w", err)
+		return RunResult{}, fmt.Errorf("无法启动 claude：%w", err)
 	}
 
 	// Backstop the reader against a wedged interrupt. If the run is cancelled but
@@ -119,7 +119,7 @@ func (c *Claude) Run(ctx context.Context, o RunOptions, onEvent func(StreamEvent
 		return res, ctxErr
 	}
 	if scanErr != nil {
-		return res, fmt.Errorf("read claude stream: %w", scanErr)
+		return res, fmt.Errorf("读取 claude 输出流失败：%w", scanErr)
 	}
 	if waitErr != nil {
 		msg := strings.TrimSpace(stderr.String())
@@ -131,7 +131,7 @@ func (c *Claude) Run(ctx context.Context, o RunOptions, onEvent func(StreamEvent
 		return res, fmt.Errorf("claude 异常退出：%s", msg)
 	}
 	if res.NativeSessionID == "" {
-		return res, errors.New("claude stream ended without a session id")
+		return res, errors.New("claude 输出流结束但未返回会话 id")
 	}
 	return res, nil
 }

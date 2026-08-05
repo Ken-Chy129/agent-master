@@ -36,7 +36,7 @@ const (
 var ErrNotFound = store.ErrNotFound
 
 // ErrBusy is returned when a session already has an active run.
-var ErrBusy = errors.New("session has an active run")
+var ErrBusy = errors.New("该会话有正在执行的任务")
 
 // ErrShellEnv is returned when the daemon could not resolve credentials this
 // machine is known to export from the user's login shell, so spawning claude
@@ -347,7 +347,7 @@ func (s *Service) runProvider(ctx context.Context, cancel context.CancelFunc, se
 	// an un-caught panic here would crash the whole daemon.
 	defer func() {
 		if r := recover(); r != nil {
-			runErr = fmt.Errorf("run panicked: %v", r)
+			runErr = fmt.Errorf("执行过程发生内部错误：%v", r)
 			slog.Error("run panicked", "session", sess.ID, "run", runID, "panic", r,
 				"stack", string(debug.Stack()))
 		}

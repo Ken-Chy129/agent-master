@@ -8,7 +8,7 @@ import (
 )
 
 // ErrNotFound is returned when a row does not exist.
-var ErrNotFound = errors.New("not found")
+var ErrNotFound = errors.New("未找到")
 
 // Session mirrors a row in the sessions table.
 type Session struct {

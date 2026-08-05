@@ -46,15 +46,15 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 	body.WorkspaceDir = strings.TrimSpace(body.WorkspaceDir)
 	if body.WorkspaceDir == "" {
-		writeErr(w, http.StatusBadRequest, errors.New("workspaceDir is required"))
+		writeErr(w, http.StatusBadRequest, errors.New("必须指定工作目录"))
 		return
 	}
 	if info, err := os.Stat(body.WorkspaceDir); err != nil || !info.IsDir() {
-		writeErr(w, http.StatusBadRequest, errors.New("workspaceDir must be an existing directory"))
+		writeErr(w, http.StatusBadRequest, errors.New("工作目录必须是已存在的目录"))
 		return
 	}
 	if !s.workspaceAllowed(body.WorkspaceDir) {
-		writeErr(w, http.StatusForbidden, errors.New("workspaceDir is not within an allowed root"))
+		writeErr(w, http.StatusForbidden, errors.New("工作目录不在允许的范围内"))
 		return
 	}
 	sess, err := s.svc.CreateSession(session.CreateSessionInput{
@@ -93,7 +93,7 @@ func (s *Server) handleRenameSession(w http.ResponseWriter, r *http.Request) {
 	}
 	body.Title = strings.TrimSpace(body.Title)
 	if body.Title == "" {
-		writeErr(w, http.StatusBadRequest, errors.New("title is required"))
+		writeErr(w, http.StatusBadRequest, errors.New("必须指定标题"))
 		return
 	}
 	sess, err := s.svc.RenameSession(r.PathValue("id"), body.Title)
@@ -145,7 +145,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 	// A turn must carry text or at least one image.
 	if strings.TrimSpace(body.Message) == "" && len(body.Images) == 0 {
-		writeErr(w, http.StatusBadRequest, errors.New("message or an image is required"))
+		writeErr(w, http.StatusBadRequest, errors.New("必须提供消息内容或图片"))
 		return
 	}
 
@@ -153,11 +153,11 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	for _, img := range body.Images {
 		data, err := base64.StdEncoding.DecodeString(img.Data)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, errors.New("image data must be base64"))
+			writeErr(w, http.StatusBadRequest, errors.New("图片数据必须是 base64 编码"))
 			return
 		}
 		if len(data) > maxImageBytes {
-			writeErr(w, http.StatusRequestEntityTooLarge, errors.New("image exceeds size limit"))
+			writeErr(w, http.StatusRequestEntityTooLarge, errors.New("图片超出大小限制"))
 			return
 		}
 		images = append(images, session.ImageUpload{Name: img.Name, MediaType: img.MediaType, Data: data})
@@ -197,12 +197,12 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// filepath.Base defuses path traversal; the file must resolve inside dir.
 	name := filepath.Base(r.PathValue("name"))
 	if name == "." || name == "/" || strings.Contains(name, "..") {
-		writeErr(w, http.StatusBadRequest, errors.New("bad name"))
+		writeErr(w, http.StatusBadRequest, errors.New("文件名不合法"))
 		return
 	}
 	path := filepath.Join(dir, name)
 	if info, err := os.Stat(path); err != nil || info.IsDir() {
-		writeErr(w, http.StatusNotFound, errors.New("not found"))
+		writeErr(w, http.StatusNotFound, errors.New("未找到"))
 		return
 	}
 	w.Header().Set("Cache-Control", "private, max-age=86400")

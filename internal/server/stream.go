@@ -61,7 +61,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeErr(w, http.StatusInternalServerError, fmt.Errorf("streaming unsupported"))
+		writeErr(w, http.StatusInternalServerError, fmt.Errorf("当前连接不支持流式推送"))
 		return
 	}
 
