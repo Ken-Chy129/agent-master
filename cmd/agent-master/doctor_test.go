@@ -42,12 +42,23 @@ func isolateHome(t *testing.T) string {
 	return dir
 }
 
-func runDoctor(t *testing.T, port int) (string, int, int) {
+func runDoctor(t *testing.T, port int, opts ...func(*doctor)) (string, int, int) {
 	t.Helper()
 	var out strings.Builder
 	d := &doctor{out: &out, cfg: &config.Config{Host: "127.0.0.1", Port: port, Token: "tok"}}
+	for _, o := range opts {
+		o(d)
+	}
 	d.run()
 	return out.String(), d.failures(), len(d.findings) - d.failures()
+}
+
+// pids stubs the two process lookups the version-mismatch diagnosis depends on.
+func pids(managed, serving int, known bool) func(*doctor) {
+	return func(d *doctor) {
+		d.managedPIDFn = func() (int, bool) { return managed, known }
+		d.servingPIDFn = func() (int, bool) { return serving, known }
+	}
 }
 
 // The month-long failure, as doctor should have reported it: the daemon is up and
@@ -142,25 +153,80 @@ func TestDoctorTreatsOlderDaemonAsUnknownNotBroken(t *testing.T) {
 	}
 }
 
-// The port-squatter: something answers, but it is not this build. That is the
-// shape of a stale daemon blocking every restart of the real service.
-func TestDoctorFlagsVersionMismatchOnThePort(t *testing.T) {
-	isolateHome(t)
-	prev := version.Version
-	version.Version = "0.3.0" // a non-dev build, so the check applies
-	t.Cleanup(func() { version.Version = prev })
+// A version mismatch on the port has two causes that look identical from
+// outside, and they need opposite fixes. Getting this wrong is what made doctor
+// tell a user to `kill` a perfectly healthy service that just needed a restart.
+func TestDoctorVersionMismatchDistinguishesRestartFromSquatter(t *testing.T) {
+	pinVersion(t, "0.3.0") // a non-dev build, so the check applies
 
-	port := fakeDaemon(t, "0.0.1-dev", `{"providers":{"claude":{}}}`)
-	out, failed, _ := runDoctor(t, port)
+	// (a) The managed service is serving; it is merely an older build. Routine
+	// after every upgrade — a warning with `restart`, never a kill.
+	t.Run("服务只是未重启", func(t *testing.T) {
+		isolateHome(t)
+		port := fakeDaemon(t, "0.2.2", `{"providers":{"claude":{"path":"/usr/local/bin/claude"}}}`)
 
-	if failed == 0 {
-		t.Errorf("version mismatch on the port not reported as a failure:\n%s", out)
-	}
-	for _, want := range []string{"0.0.1-dev", "被另一个 agent-master 实例占用", "lsof"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("report missing %q:\n%s", want, out)
+		out, failed, warned := runDoctor(t, port, pids(4242, 4242, true))
+
+		if failed != 0 {
+			t.Errorf("a service that only needs restarting was reported as a failure:\n%s", out)
 		}
-	}
+		if warned == 0 {
+			t.Errorf("version mismatch not reported at all:\n%s", out)
+		}
+		if !strings.Contains(out, "agent-master restart") {
+			t.Errorf("report does not lead with restart:\n%s", out)
+		}
+		if strings.Contains(out, "kill 4242") {
+			t.Errorf("report tells the user to kill the managed service:\n%s", out)
+		}
+		if !strings.Contains(out, "由服务管理器托管") {
+			t.Errorf("diagnostics omit who owns the port:\n%s", out)
+		}
+	})
+
+	// (b) Something outside the service holds the port, so the service can never
+	// bind. Rare, severe, and only here should a kill be prescribed.
+	t.Run("残留进程占用端口", func(t *testing.T) {
+		isolateHome(t)
+		port := fakeDaemon(t, "0.0.1-dev", `{"providers":{"claude":{"path":"/usr/local/bin/claude"}}}`)
+
+		out, failed, _ := runDoctor(t, port, pids(9001, 7777, true))
+
+		if failed == 0 {
+			t.Errorf("a port squatter was not reported as a failure:\n%s", out)
+		}
+		for _, want := range []string{"不受服务管理", "7777", "kill 7777"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("report missing %q:\n%s", want, out)
+			}
+		}
+	})
+
+	// Without evidence, guessing is worse than leading with the safe action:
+	// restart works for (a), and for (b) `start` then fails naming the squatter.
+	t.Run("无法判定时先建议重启", func(t *testing.T) {
+		isolateHome(t)
+		port := fakeDaemon(t, "0.2.2", `{"providers":{"claude":{"path":"/usr/local/bin/claude"}}}`)
+
+		out, failed, warned := runDoctor(t, port, pids(0, 0, false))
+
+		if failed != 0 {
+			t.Errorf("an undetermined state was reported as a failure:\n%s", out)
+		}
+		if warned == 0 || !strings.Contains(out, "agent-master restart") {
+			t.Errorf("report does not lead with restart:\n%s", out)
+		}
+		if !strings.Contains(out, "无法确定") {
+			t.Errorf("diagnostics do not admit the state is unknown:\n%s", out)
+		}
+	})
+}
+
+func pinVersion(t *testing.T, v string) {
+	t.Helper()
+	prev := version.Version
+	version.Version = v
+	t.Cleanup(func() { version.Version = prev })
 }
 
 // With no daemon, doctor must still run local checks — and must not let a pass

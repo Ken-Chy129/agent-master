@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,6 +70,26 @@ type doctor struct {
 	cfg      *config.Config
 	findings []finding
 	facts    []fact
+
+	// Lookups the tests replace; nil means use the real system calls. Both
+	// branches of the version-mismatch diagnosis depend on live process state,
+	// which is otherwise unreachable from a test.
+	managedPIDFn func() (int, bool)
+	servingPIDFn func() (int, bool)
+}
+
+func (d *doctor) managedPID() (int, bool) {
+	if d.managedPIDFn != nil {
+		return d.managedPIDFn()
+	}
+	return service.ManagedPID()
+}
+
+func (d *doctor) servingPID() (int, bool) {
+	if d.servingPIDFn != nil {
+		return d.servingPIDFn()
+	}
+	return servingPID()
 }
 
 func (d *doctor) fail(title string, fixes ...string) {
@@ -121,14 +142,7 @@ func (d *doctor) inspectDaemon() map[string]any {
 	}
 
 	if !isDevBuild() && ver != version.Version {
-		// The exact shape of the month-long failure: a stale process holds the
-		// port, so every restart of the real service dies on bind and every
-		// health probe is answered by the wrong daemon.
-		d.fail(fmt.Sprintf("端口 %d 被另一个 agent-master 实例占用（v%s），当前版本 v%s 无法启动",
-			d.cfg.Port, ver, version.Version),
-			fmt.Sprintf("macOS：lsof -ti :%d | xargs kill", d.cfg.Port),
-			fmt.Sprintf("Linux：ss -ltnp | grep %d，然后终止对应进程", d.cfg.Port),
-			"随后执行 agent-master start")
+		d.reportVersionMismatch(ver)
 	}
 	d.note("守护进程", fmt.Sprintf("%s  v%s", d.cfg.Addr(), ver))
 
@@ -140,6 +154,73 @@ func (d *doctor) inspectDaemon() map[string]any {
 		return nil
 	}
 	return info
+}
+
+// reportVersionMismatch handles "the port answers, but not with this build".
+//
+// Two very different causes look identical from outside: the managed service is
+// simply running an older build and needs a restart (routine after every upgrade),
+// or an orphaned process is squatting the port so the real service can never bind
+// (rare, and how one machine stayed broken for a month). Prescribing `kill` for
+// the first is wrong and alarming; prescribing `restart` for the second silently
+// fails. So only call it a squatter on positive evidence — the process holding the
+// port is not the one the service manager owns — and otherwise lead with restart,
+// which is safe either way: if it is a squatter, `start` then fails with an error
+// that names it.
+func (d *doctor) reportVersionMismatch(ver string) {
+	managed, managedKnown := d.managedPID()
+	serving, servingKnown := d.servingPID()
+	d.note("端口占用进程", describePortOwner(managed, managedKnown, serving, servingKnown))
+
+	if managedKnown && servingKnown && serving > 0 && managed != serving {
+		d.fail(fmt.Sprintf("端口 %d 被一个不受服务管理的进程占用（pid %d，v%s），服务本身无法绑定",
+			d.cfg.Port, serving, ver),
+			fmt.Sprintf("macOS：kill %d", serving),
+			fmt.Sprintf("Linux：kill %d", serving),
+			"随后执行 agent-master start")
+		return
+	}
+
+	d.warn(fmt.Sprintf("端口 %d 上运行的是 v%s，与当前 CLI 的 v%s 不一致，新功能尚未生效",
+		d.cfg.Port, ver, version.Version),
+		"agent-master restart",
+		"若重启后版本仍不一致，说明有残留进程占用端口，用以下命令定位后终止：",
+		fmt.Sprintf("  macOS：lsof -ti :%d", d.cfg.Port),
+		fmt.Sprintf("  Linux：ss -ltnp | grep %d", d.cfg.Port))
+}
+
+// servingPID reads the pid recorded by whichever daemon currently holds the port.
+// The serving process writes it after binding and removes it on exit, so it
+// identifies the port's owner even when that is not the managed service.
+func servingPID() (int, bool) {
+	path, err := config.PIDPath()
+	if err != nil {
+		return 0, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, false
+	}
+	return pid, true
+}
+
+func describePortOwner(managed int, managedKnown bool, serving int, servingKnown bool) string {
+	switch {
+	case servingKnown && managedKnown && serving == managed:
+		return fmt.Sprintf("pid %d，由服务管理器托管", serving)
+	case servingKnown && managedKnown && managed == 0:
+		return fmt.Sprintf("pid %d，但服务管理器当前没有存活进程", serving)
+	case servingKnown && managedKnown:
+		return fmt.Sprintf("pid %d，与服务管理器托管的 pid %d 不一致", serving, managed)
+	case servingKnown:
+		return fmt.Sprintf("pid %d，无法确认是否由服务管理器托管", serving)
+	default:
+		return "无法确定"
+	}
 }
 
 // inspectFromDaemon interprets the daemon's own view of its environment. Its

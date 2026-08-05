@@ -85,8 +85,9 @@ func run(args []string) error {
 	case "service":
 		return cmdService(args[1:])
 	default:
-		usage()
-		return fmt.Errorf("未知命令：%s", args[0])
+		// Don't dump the whole usage page for a typo — the error scrolls out of
+		// sight above it. One line plus where to look is more useful.
+		return fmt.Errorf("未知命令 %q，运行 agent-master help 查看可用命令", args[0])
 	}
 }
 
@@ -437,47 +438,66 @@ func cmdService(args []string) error {
 
 // usage is the short, everyday help: the handful of commands most people use,
 // with the rest named on one line and the details behind `help --all`.
-func usage() {
-	fmt.Print(`agent-master —— 在本机运行 Claude Code，从任意设备管理会话。
+func usage() { writeUsage(os.Stdout) }
 
-用法：
+// Both help pages keep every line well inside a standard terminal: CJK glyphs are
+// double-width, so a line that looks short in source can overflow and wrap
+// mid-token — `agent-master help --all` once broke into "help -" / "-all", which
+// is neither readable nor copyable. TestHelpLinesFitATerminal guards the width.
+func writeUsage(w io.Writer) {
+	fmt.Fprint(w, `agent-master —— 在本机运行 Claude Code，从任意设备管理会话
+
+用法
   agent-master <命令>
 
+常用命令
   start     在后台启动（并随开机自启），输出连接方式
   status    查看运行状态与连接方式
-  doctor    诊断"看起来已启动但会话失败"的原因
+  doctor    启动看起来正常但会话失败时，诊断原因并给出修复方式
   pair      输出地址、令牌与配对二维码
   stop      停止运行
 
-其他命令：restart · uninstall · token · serve · version   →  agent-master help --all
-配置与数据位于 ~/.agent-master/（默认端口 8888）。
+更多
+  其他命令   restart · uninstall · token · serve · version
+  完整帮助   agent-master help --all
+  配置与数据 ~/.agent-master/（默认端口 8888）
 `)
 }
 
 // usageAll is the full grouped reference, including low-frequency and dev
 // commands, shown by `agent-master help --all`.
-func usageAll() {
-	fmt.Print(`agent-master —— 在本机运行 Claude Code，从任意设备管理会话。
+func usageAll() { writeUsageAll(os.Stdout) }
 
-用法：
+func writeUsageAll(w io.Writer) {
+	fmt.Fprint(w, `agent-master —— 在本机运行 Claude Code，从任意设备管理会话
+
+用法
   agent-master <命令> [参数]
 
-安装与运行：
+安装与运行
   start        在后台启动（并随开机自启），输出连接方式
   status       查看运行状态与连接方式
-  doctor       检查会话执行所依赖的各项前置条件，并给出修复方式
+  doctor       检查会话执行所依赖的前置条件，并给出修复方式
+               存在阻塞性问题时退出码为 1，可用于脚本
   stop         停止运行
-  restart      重启
-  uninstall    停止并移除后台服务
+  restart      重启（升级后需执行，否则仍运行旧版本）
+  uninstall    停止并移除后台服务，保留数据与配置
 
-连接客户端：
+连接客户端
   pair         输出本机地址、令牌与配对二维码
   token        仅输出访问令牌
 
-高级：
-  serve        前台运行，用于开发与调试：[--port N] [--host H]
+其他
+  serve        前台运行，用于开发与调试
+               [--port N] [--host H]
   version      输出版本号
+  help --all   显示本页
 
-配置与数据位于 ~/.agent-master/（默认端口 8888）。
+配置与数据
+  ~/.agent-master/    配置、事件账本、日志、上传的图片
+  默认端口 8888       仅在可信网络中暴露
+
+诊断入口
+  会话失败但 status 显示正常时，先执行 agent-master doctor
 `)
 }

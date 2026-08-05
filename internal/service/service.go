@@ -10,8 +10,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Ken-Chy129/agent-master/internal/config"
 )
 
 const (
@@ -71,6 +74,68 @@ func Installed() bool {
 	}
 	_, err = os.Stat(path)
 	return err == nil
+}
+
+// ManagedPID returns the pid of the process the service manager currently owns,
+// and whether it could be determined. 0 with ok=true means the manager knows the
+// service but has no live process for it (e.g. it is crash-looping).
+//
+// Why this exists: when the port answers with a version other than this binary's,
+// there are two very different causes that look identical from the outside — the
+// managed service is simply running an older build and needs a restart, or an
+// orphaned process is squatting the port so the real service can never bind.
+// Prescribing the wrong fix means either a pointless `kill` or a restart that
+// silently keeps failing. Comparing this pid against whoever holds the port
+// separates them.
+func ManagedPID() (int, bool) {
+	switch runtime.GOOS {
+	case "linux":
+		out, err := exec.Command("systemctl", "--user", "show", "-p", "MainPID", "--value", unitName).Output()
+		if err != nil {
+			return 0, false
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(out)))
+		if err != nil {
+			return 0, false
+		}
+		return pid, true
+	case "darwin":
+		// `launchctl print` emits a "pid = N" line only while the job has a live
+		// process; its absence is the crash-looping case, not a lookup failure.
+		out, err := exec.Command("launchctl", "print", "gui/"+uid()+"/"+macLabel).Output()
+		if err != nil {
+			return 0, false
+		}
+		for _, line := range strings.Split(string(out), "\n") {
+			line = strings.TrimSpace(line)
+			rest, ok := strings.CutPrefix(line, "pid = ")
+			if !ok {
+				continue
+			}
+			if pid, err := strconv.Atoi(strings.TrimSpace(rest)); err == nil {
+				return pid, true
+			}
+		}
+		return 0, true
+	case "windows":
+		// No service manager: the daemon's own pidfile is the record of which
+		// process this installation started.
+		pidPath, err := config.PIDPath()
+		if err != nil {
+			return 0, false
+		}
+		data, err := os.ReadFile(pidPath)
+		if err != nil {
+			return 0, true // no pidfile → nothing running
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil {
+			return 0, true
+		}
+		return pid, true
+	default:
+		return 0, false
+	}
 }
 
 // Stop stops the running service (leaves it installed on Linux). Stopping an
