@@ -87,12 +87,37 @@ Claude Code runs. It stores tokens using Electron `safeStorage` and supports
 `agentmaster://` pairing links. The desktop app and Web UI can be open at the
 same time.
 
-Desktop builds are currently unsigned. Windows may show a SmartScreen warning.
-On macOS, clear the download quarantine once if the app is blocked:
+Desktop builds are not notarized by Apple. Windows may show a SmartScreen
+warning. On macOS, clear the download quarantine once if the app is blocked:
 
 ```bash
-xattr -cr "/Applications/Agent Master.app"
+/usr/bin/xattr -dr com.apple.quarantine "/Applications/Agent Master.app"
 ```
+
+The absolute path is deliberate: the PyPI `xattr` package installs a command of
+the same name, and if it comes first on `PATH` the call fails with
+`option -r not recognized`. `-dr` removes only the quarantine flag that causes
+the block, where `-cr` would clear every extended attribute on the bundle.
+
+### If macOS says the app "contains malware" and moves it to the Trash
+
+The macOS installers up to and including `0.3.0` shipped an incomplete signature
+— only the per-binary one the linker adds, which does not cover the bundle. A
+quarantined app whose signature fails validation is not treated as merely coming
+from an unidentified developer: macOS 15+ reports it as malware and removes it,
+and clearing the quarantine flag cannot undo that. From `0.3.1` the packaging
+step ad-hoc signs the whole bundle.
+
+If you hit this, download again, then repair the signature before clearing the
+quarantine flag:
+
+```bash
+codesign --force --deep --sign - "/Applications/Agent Master.app"
+/usr/bin/xattr -dr com.apple.quarantine "/Applications/Agent Master.app"
+```
+
+`codesign --verify --deep --strict "/Applications/Agent Master.app"` confirms the
+repair — no output means it passed.
 
 ## Multiple machines
 

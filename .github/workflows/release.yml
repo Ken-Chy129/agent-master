@@ -38,7 +38,9 @@ jobs:
 
   # Build the macOS desktop app (.dmg) and attach it to the same release.
   # Runs on macOS because electron-builder can only produce mac artifacts there.
-  # Unsigned/ad-hoc: users clear quarantine once with `xattr -cr` (see README).
+  # Not notarized. The packaging config's afterPack hook ad-hoc signs the bundle
+  # so its signature validates; users still clear the quarantine flag once with
+  # `/usr/bin/xattr -dr com.apple.quarantine` (see README).
   desktop-mac:
     runs-on: macos-latest
     needs: release

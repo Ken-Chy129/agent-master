@@ -42,11 +42,19 @@ extraMetadata:
 # packaging with: ENOENT chmod node_modules/7zip-bin/<platform>/7za.
 npmRebuild: false
 
+# Give the macOS bundle a real ad-hoc signature before the .dmg is built. Without
+# this the shipped app carries only the linker's per-binary signature, which does
+# not cover the bundle and fails `codesign --verify` — and a quarantined download
+# whose signature fails validation is reported as malware and moved to the Trash,
+# not merely as coming from an unidentified developer. See the hook for details.
+afterPack: scripts/adhoc-sign.cjs
+
 mac:
   category: public.app-category.developer-tools
-  # No Apple Developer cert in CI, so this is an unsigned build. electron-builder
-  # applies an ad-hoc signature so the app still launches on Apple Silicon; users
-  # clear the download quarantine once (`xattr -cr`, see the release notes).
+  # No Apple Developer cert in CI, so this build is not notarized. The afterPack
+  # hook above ad-hoc signs the bundle so its signature at least validates; users
+  # still clear the download quarantine once
+  # (`/usr/bin/xattr -dr com.apple.quarantine`, see the README).
   artifactName: Agent-Master-Desktop-${version}-macOS-${arch}.${ext}
   target:
     - target: dmg

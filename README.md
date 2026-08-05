@@ -72,11 +72,31 @@ agent-master pair
 
 桌面端只是客户端，不能替代运行 Claude Code 的机器上的守护进程。它通过 Electron `safeStorage` 保存令牌，并支持 `agentmaster://` 配对链接。桌面端与 Web 界面可同时使用。
 
-桌面端目前未签名。Windows 可能出现 SmartScreen 提示。macOS 上若应用被拦截，执行一次以清除下载隔离标记：
+桌面端未经 Apple 公证。Windows 可能出现 SmartScreen 提示。macOS 上首次打开被拦截时，执行一次以清除下载隔离标记：
 
 ```bash
-xattr -cr "/Applications/Agent Master.app"
+/usr/bin/xattr -dr com.apple.quarantine "/Applications/Agent Master.app"
 ```
+
+这里刻意写成绝对路径：PyPI 的 `xattr` 包会安装同名命令，若它在 `PATH` 中靠前，就会以
+`option -r not recognized` 失败。`-dr` 只删除导致拦截的隔离标记，而 `-cr` 会清掉该应用
+的全部扩展属性。
+
+### 提示「已阻止恶意软件并移到废纸篓」
+
+`0.3.0` 及更早的 macOS 安装包签名不完整（只带链接器为单个二进制加的临时签名，未覆盖
+bundle），而**带隔离标记的应用一旦签名校验失败，macOS 15+ 会直接判定为恶意软件并移除**，
+此时清除隔离标记已无济于事。`0.3.1` 起打包流程会对 bundle 做完整的 ad-hoc 签名。
+
+若已遇到该提示，重新下载后先修复签名再清除隔离标记：
+
+```bash
+codesign --force --deep --sign - "/Applications/Agent Master.app"
+/usr/bin/xattr -dr com.apple.quarantine "/Applications/Agent Master.app"
+```
+
+可用 `codesign --verify --deep --strict "/Applications/Agent Master.app"` 确认修复成功
+（无输出即通过）。
 
 ## 多机管理
 
