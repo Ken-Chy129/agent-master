@@ -71,6 +71,10 @@ type doctor struct {
 	findings []finding
 	facts    []fact
 
+	// Set once a version mismatch has been reported, so the consequences of
+	// running an old daemon are not listed again as separate problems.
+	versionMismatchReported bool
+
 	// Lookups the tests replace; nil means use the real system calls. Both
 	// branches of the version-mismatch diagnosis depend on live process state,
 	// which is otherwise unreachable from a test.
@@ -168,6 +172,7 @@ func (d *doctor) inspectDaemon() map[string]any {
 // which is safe either way: if it is a squatter, `start` then fails with an error
 // that names it.
 func (d *doctor) reportVersionMismatch(ver string) {
+	d.versionMismatchReported = true
 	managed, managedKnown := d.managedPID()
 	serving, servingKnown := d.servingPID()
 	d.note("端口占用进程", describePortOwner(managed, managedKnown, serving, servingKnown))
@@ -274,9 +279,12 @@ func (d *doctor) inspectFromDaemon(info map[string]any) {
 		d.note("凭证", "未找到")
 	}
 
-	if !hasEnv || !hasAuth {
+	// An old daemon not reporting these is a consequence of the version mismatch
+	// already stated above, not a second problem — listing both would make the
+	// single fix look like two.
+	if (!hasEnv || !hasAuth) && !d.versionMismatchReported {
 		d.warn("运行中的守护进程版本过旧，无法上报凭证与环境状态，本次诊断不完整",
-			"升级后重启守护进程：npm install -g @ken-chy129/agent-master@latest && agent-master restart")
+			"升级守护进程后执行 agent-master restart")
 	}
 
 	// A blocked shell env is the more specific and more severe problem: sends are

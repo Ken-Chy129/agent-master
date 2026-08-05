@@ -279,3 +279,41 @@ func TestRecentProblemsToleratesMissingLog(t *testing.T) {
 		t.Errorf("recentProblems = %v, want nil for a missing log", got)
 	}
 }
+
+// An old daemon not reporting auth/shell_env is a consequence of the version
+// mismatch, not a second problem. Listing both makes one fix look like two.
+func TestDoctorFoldsStaleDaemonWarningIntoVersionMismatch(t *testing.T) {
+	pinVersion(t, "0.3.0")
+	isolateHome(t)
+	port := fakeDaemon(t, "0.2.2", `{"providers":{"claude":{"path":"/usr/local/bin/claude"}}}`)
+
+	out, failed, warned := runDoctor(t, port, pids(4242, 4242, true))
+
+	if failed != 0 {
+		t.Errorf("reported a failure for a service that only needs restarting:\n%s", out)
+	}
+	if warned != 1 {
+		t.Errorf("got %d warnings, want the single version-mismatch entry:\n%s", warned, out)
+	}
+	// The facts should still record what could not be read.
+	if !strings.Contains(out, "版本过旧，未上报") {
+		t.Errorf("diagnostics lost the unreported fields:\n%s", out)
+	}
+}
+
+// With a dev build the mismatch check is skipped, so the stale-daemon warning is
+// the only signal left and must still appear.
+func TestDoctorKeepsStaleDaemonWarningWithoutMismatch(t *testing.T) {
+	pinVersion(t, "0.0.1-dev")
+	isolateHome(t)
+	port := fakeDaemon(t, "0.2.2", `{"providers":{"claude":{"path":"/usr/local/bin/claude"}}}`)
+
+	out, failed, warned := runDoctor(t, port)
+
+	if failed != 0 {
+		t.Errorf("unexpected failure:\n%s", out)
+	}
+	if warned == 0 || !strings.Contains(out, "本次诊断不完整") {
+		t.Errorf("stale-daemon warning missing when it is the only signal:\n%s", out)
+	}
+}

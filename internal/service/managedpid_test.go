@@ -4,7 +4,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/Ken-Chy129/agent-master/internal/config"
@@ -35,9 +34,8 @@ func TestManagedPIDNamesALiveProcess(t *testing.T) {
 		t.Fatalf("ManagedPID = %d, want a non-negative pid", managed)
 	}
 	if managed > 0 {
-		// Signal 0 probes existence without touching the process.
-		if err := syscall.Kill(managed, 0); err != nil && err != syscall.EPERM {
-			t.Errorf("ManagedPID reported pid %d, which does not exist: %v", managed, err)
+		if alive, checkable := processAlive(managed); checkable && !alive {
+			t.Errorf("ManagedPID reported pid %d, but no such process exists", managed)
 		}
 	}
 
